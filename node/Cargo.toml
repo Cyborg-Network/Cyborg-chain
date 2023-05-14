@@ -2,7 +2,7 @@
 name = "cyborg-node"
 version = "0.1.0-dev"
 description = "Cyborg Node based on Substrate Framework"
-authors = ["SHA888 <https://github.com/SHA888>"]
+authors = ["Cyborg Network <https://github.com/Cyborg-Network>"]
 homepage = "https://cyborgnetwork.io/"
 edition = "2021"
 license = "GPLv3"
