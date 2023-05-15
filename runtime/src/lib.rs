@@ -366,7 +366,13 @@ impl pallet_contracts::Config for Runtime {
 	type MaxStorageKeyLen = ConstU32<128>;
 	type UnsafeUnstableInterface = ConstBool<false>;
 	type MaxDebugBufferLen = ConstU32<{ 2 * 1024 * 1024 }>;
-} 
+}
+
+// Configure the pallet edge-connect
+impl pallet_edge_connect::Config for Runtime {
+	type Event = RuntimeEvent;
+	type AuthorityId = pallet_edge_connect::crypto::TestAuthId; // TODO: change to the correct type
+}
 
 // Create the runtime by composing the FRAME pallets that were previously configured.
 construct_runtime!(
