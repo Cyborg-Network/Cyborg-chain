@@ -101,7 +101,8 @@ pub fn new_partial(
 			&*keystore,
 			node_template_runtime::pallet_your_ocw_pallet::KEY_TYPE,
 			Some("//Alice"),
-		).expect("Creating key with account Alice should succeed.");
+		)
+		.expect("Creating key with account Alice should succeed.");
 	}
 
 	let select_chain = sc_consensus::LongestChain::new(backend.clone());
