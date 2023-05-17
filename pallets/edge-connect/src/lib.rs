@@ -25,6 +25,7 @@
 
 #![cfg_attr(not(feature = "std"), no_std)]
 
+use codec::{Decode, Encode};
 use frame_support::{traits::Get, ensure};
 use frame_system::{
 	self as system,
@@ -261,8 +262,25 @@ pub mod pallet {
 			Ok(().into())
 		}
 
-		// 3. remove_connection
 		#[pallet::call_index(4)]
+		#[pallet::weight(0)]
+		pub fn submit_response_unsigned_with_signed_payload(
+			origin: OriginFor<T>,
+			response_payload: ResponsePayload<T::Public, T::BlockNumber>,
+			_signature: T::Signature,
+		) -> DispatchResultWithPostInfo {
+			// This ensures that the function can only be called via unsigned transaction.
+			ensure_none(origin)?;
+			// Add the response to the on-chain list, but mark it as coming from an empty address.
+			Self::add_response(None, response_payload.response);
+			// now increment the block number at which we expect next unsigned transaction.
+			let current_block = <system::Pallet<T>>::block_number();
+			<NextUnsignedAt<T>>::put(current_block + T::UnsignedInterval::get());
+			Ok(().into())
+		}
+
+		// 3. remove_connection
+		#[pallet::call_index(5)]
 		#[pallet::weight(10_000 + T::DbWeight::get().writes(1).ref_time())]
 		pub fn remove_connection(origin: OriginFor<T>, connection: u32) -> DispatchResult {
 			// Check that the extrinsic was signed and get the signer.
@@ -358,6 +376,21 @@ pub mod pallet {
 				InvalidTransaction::Call.into()
 			}
 		}
+	}
+}
+
+/// Payload used by this crate to hold response 
+/// data required to submit a transaction.
+#[derive(Encode, Decode, Clone, PartialEq, Eq, RuntimeDebug, scale_info::TypeInfo)]
+pub struct ResponsePayload<Public, BlockNumber> {
+	block_number: BlockNumber,
+	response: String,
+	public: Public,
+}
+
+impl<T: SigningTypes> SignedPayload<T> for ResponsePayload<T::Public, T::BlockNumber> {
+	fn public(&self) -> T::Public {
+		self.public.clone()
 	}
 }
 
@@ -501,6 +534,36 @@ impl<T: Config> Pallet<T> {
 		//
 		SubmitTransaction::<T, Call<T>>::submit_unsigned_transaction(call.into())
 			.map_err(|()| "Unable to submit unsigned transaction.")?;
+
+		Ok(())
+	}
+
+	/// A helper function to fetch the response, sign payload and send an unsigned transaction
+	fn fetch_response_and_send_unsigned_for_any_account(
+		block_number: T::BlockNumber,
+	) -> Result<(), &'static str> {
+		// Make sure we don't fetch the response if unsigned transaction is going to be rejected
+		// anyway.
+		let next_unsigned_at = <NextUnsignedAt<T>>::get();
+		if next_unsigned_at > block_number {
+			return Err("Too early to send unsigned transaction")
+		}
+
+		// Make an external HTTP request to fetch the current response.
+		// Note this call will block until response is received.
+		let response = Self::fetch_response().map_err(|_| "Failed to fetch response")?;
+
+		// -- Sign using any account
+		let (_, result) = Signer::<T, T::AuthorityId>::any_account()
+			.send_unsigned_transaction(
+				|account| ResponsePayload { response, block_number, public: account.public.clone() },
+				|payload, signature| Call::submit_response_unsigned_with_signed_payload {
+					response_payload: payload,
+					signature,
+				},
+			)
+			.ok_or("No local accounts accounts available.")?;
+		result.map_err(|()| "Unable to submit transaction")?;
 
 		Ok(())
 	}
