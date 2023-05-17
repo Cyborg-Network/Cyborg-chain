@@ -34,6 +34,7 @@ use frame_system::{
 	},
 };
 use scale_info::prelude::string::String;
+use lite_json::json::JsonValue;
 use sp_core::crypto::KeyTypeId;
 use sp_runtime::{
 	offchain::{
@@ -183,9 +184,9 @@ pub mod pallet {
 
 		// TODO:
 		// Create functions for:
-		// 1. send command (ocw)
+		// 1. send command
 		#[pallet::call_index(1)]
-		#[pallet::weight({0})]
+		#[pallet::weight(10_000 + T::DbWeight::get().writes(1).ref_time())]
 		pub fn send_command(origin: OriginFor<T>, command: String) -> DispatchResult {
 			// Retrieve the signer and check it is valid.
 			let who = ensure_signed(origin)?;
@@ -199,7 +200,7 @@ pub mod pallet {
 			Ok(());
 		}
 
-		// 2. submit_response (ocw)
+		// 2. submit_response (ocw * 3)
 		#[pallet::call_index(2)]
 		#[pallet::weight({0})]
 		pub fn submit_response(origin: OriginFor<T>, response: String) -> DispatchResult {
@@ -460,17 +461,14 @@ impl<T: Config> Pallet<T> {
 			http::Error::Unknown
 		})?;
 
-		let response = match Self::parse_response(body_str) {
-			Some(response) => Ok(response),
-			None => {
-				log::warn!("Unable to extract response from the CyberHub: {:?}", body_str);
-				Err(http::Error::Unknown)
-			},
-		}?;
+		let response = if body_str == "pong" {
+			Ok(String::from(body_str))
+		} else {
+			log::warn!("Unable to extract response from the CyberHub: {:?}", body_str);
+			Err(http::Error::Unknown)
+		};		
 
-		log::warn!("Got response: {}", response);
-
-		Ok(response)
+		response
 	}
 
 	/// Add new response to the list.
