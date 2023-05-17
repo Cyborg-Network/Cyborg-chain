@@ -133,8 +133,11 @@ pub mod pallet {
 			let parent_hash = <system::Pallet<T>>::block_hash(block_number - 1u32.into());
 			log::debug!("Current block: {:?} (parent hash: {:?})", block_number, parent_hash);
 
-			let response: Option<u32> = Self::receive_response(); // TODO: create receive_response function
-			log::debug!("Response: {:?}", response);
+			let response: String = Self::fetch_response().unwrap_or_else(|e| {
+				log::error!("fetch_response error: {:?}", e);
+				"Failed".into()
+			});
+			log::info!("Response: {}", response);
 
 			// This will send both signed and unsigned transactions
 			// depending on the block number.
