@@ -44,7 +44,7 @@ use sp_runtime::{
 	},
 	traits::Zero,
 	transaction_validity::{InvalidTransaction, TransactionValidity, ValidTransaction},
-	RuntimeDebug,
+	RuntimeDebug, BoundedVec,
 };
 use sp_std::vec::Vec;
 
@@ -94,7 +94,6 @@ pub mod pallet {
 	use super::*;
 	use frame_support::pallet_prelude::*;
 	use frame_system::pallet_prelude::*;
-	use sp_runtime::BoundedVec;
 
 	#[pallet::pallet]
 	pub struct Pallet<T>(_);
@@ -135,6 +134,10 @@ pub mod pallet {
 		/// Maximum number of responses received per request
 		#[pallet::constant]
 		type MaxResponses: Get<u32>;
+
+		/// The maximum length of a response string.
+		#[pallet::constant]
+		type MaxStringLength: Get<u32>;
 	}
 
 	// The pallet's hooks for offchain worker
@@ -316,7 +319,7 @@ pub mod pallet {
 	#[pallet::storage]
 	#[pallet::getter(fn responses)]
 	pub(super) type Responses<T: Config> =
-		StorageValue<_, BoundedVec<(Option<T::AccountId>, String), T::MaxResponses>, ValueQuery>;
+		StorageValue<_, BoundedVec<(Option<T::AccountId>, BoundedVec<u8, T::MaxStringLength>), T::MaxResponses>, ValueQuery>;
 
 	/// Defines the block when next unsigned transaction will be accepted.
 	///
@@ -492,16 +495,18 @@ impl<T: Config> Pallet<T> {
 		// Note this call will block until response is received.
 		let response = Self::fetch_response().map_err(|_| "Failed to fetch response")?;
 
+		// Clone the response for use in the closure.
+		let response_clone = response.clone();
+
 		// Using `send_signed_transaction` associated type we create and submit a transaction
 		// representing the call, we've just created.
 		// Submit signed will return a vector of results for all accounts that were found in the
 		// local keystore with expected `KEY_TYPE`.
 		let results = signer.send_signed_transaction(|_account| {
-			// Received response is wrapped into a call to `submit_response` public function of this
-			// pallet. This means that the transaction, when executed, will simply call that
-			// function passing `response` as an argument.
-			Call::submit_response { response }
-		});
+			// Clone the response_clone before moving it into the closure
+			let response_in_closure = response_clone.clone();
+			Call::submit_response { response: response_in_closure }
+		});		
 
 		for (acc, res) in &results {
 			match res {
@@ -549,6 +554,12 @@ impl<T: Config> Pallet<T> {
 	fn fetch_response_and_send_unsigned_for_any_account(
 		block_number: T::BlockNumber,
 	) -> Result<(), &'static str> {
+		let signer = Signer::<T, T::AuthorityId>::all_accounts();
+		if !signer.can_sign() {
+			return Err(
+				"No local accounts available. Consider adding one via `author_insertKey` RPC.",
+			)
+		}
 		// Make sure we don't fetch the response if unsigned transaction is going to be rejected
 		// anyway.
 		let next_unsigned_at = <NextUnsignedAt<T>>::get();
@@ -560,17 +571,18 @@ impl<T: Config> Pallet<T> {
 		// Note this call will block until response is received.
 		let response = Self::fetch_response().map_err(|_| "Failed to fetch response")?;
 
+		// Create a clone of the response for use in the log::info call
+    	let response_for_log = response.clone();
+
 		// -- Sign using any account
-		let (_, result) = Signer::<T, T::AuthorityId>::any_account()
-			.send_unsigned_transaction(
-				|account| ResponsePayload { response, block_number, public: account.public.clone() },
-				|payload, signature| Call::submit_response_unsigned_with_signed_payload {
-					response_payload: payload,
-					signature,
-				},
-			)
-			.ok_or("No local accounts accounts available.")?;
-		result.map_err(|()| "Unable to submit transaction")?;
+		let results = signer.send_signed_transaction(
+			|_account| {
+				// Clone the response inside this closure
+				let response_clonode = response.clone();
+				ResponsePayload { response: response_in_closure, block_number, public: account.public.clone() }
+			},
+		);
+		
 
 		Ok(())
 	}
@@ -593,7 +605,7 @@ impl<T: Config> Pallet<T> {
 		// -- Sign using all accounts
 		let transaction_results = Signer::<T, T::AuthorityId>::all_accounts()
 			.send_unsigned_transaction(
-				|account| ResponsePayload { response, block_number, public: account.public.clone() },
+				|account| ResponsePayload { response: response_in_closure, block_number, public: account.public.clone() },
 				|payload, signature| Call::submit_response_unsigned_with_signed_payload {
 					response_payload: payload,
 					signature,
@@ -665,26 +677,38 @@ impl<T: Config> Pallet<T> {
 	fn add_response(maybe_who: Option<T::AccountId>, response: String) {
 		log::info!("Adding response to the list: {}", response);
 
+		// Convert the string to a byte vector.
+		let response_bytes = response.into_bytes();
+
+		// Ensure the length doesn't exceed the maximum length.
+		let bounded_response = match BoundedVec::try_from(response_bytes) {
+			Ok(bounded) => bounded,
+			Err(_) => {
+				log::warn!("Response is too long. It has been ignored.");
+				return;
+			},
+		};
+		
 		// Get the current list of responses.
 		let mut responses = Responses::<T>::get();
 
-		// TODO: Ensure that the list of responses doesn't exceed the maximum size.
-
 		// Attempt to append the new response to the list.
-		match responses.try_push((maybe_who.clone(), response.clone())) {
+		match responses.try_push((maybe_who.clone(), bounded_response.clone())) {
 			Ok(_) => {
 				// Update the storage.
 				Responses::<T>::put(responses);
-
+	
 				// Emit an event that new response has been received.
-				Self::deposit_event(Event::NewResponse { maybe_who, response });
+				Self::deposit_event(Event::NewResponse { maybe_who, response: String::from_utf8(bounded_response.into()).unwrap() });
 			},
 			Err(_) => {
 				log::warn!("Unable to add response. Maximum number of responses reached.");
 			},
 		}
+		
 	}
 
+	// TODO: fix these unused variables
 	fn validate_transaction_parameters(
 		block_number: &T::BlockNumber,
 		new_response: &String,
