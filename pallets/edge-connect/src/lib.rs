@@ -33,8 +33,8 @@ use frame_system::{
 		SignedPayload, Signer, SigningTypes, SubmitTransaction,
 	},
 };
-use scale_info::prelude::string::String;
 use lite_json::json::JsonValue;
+use scale_info::prelude::string::String;
 use sp_core::crypto::KeyTypeId;
 use sp_runtime::{
 	offchain::{
@@ -94,6 +94,8 @@ pub mod pallet {
 	use super::*;
 	use frame_support::pallet_prelude::*;
 	use frame_system::pallet_prelude::*;
+	use lite_json::Value;
+	use sp_runtime::BoundedVec;
 
 	#[pallet::pallet]
 	pub struct Pallet<T>(_);
@@ -116,6 +118,10 @@ pub mod pallet {
 		/// sending between distinct runs of this offchain worker.
 		#[pallet::constant]
 		type GracePeriod: Get<Self::BlockNumber>;
+
+		/// Maximum number of responses received per request
+		#[pallet::constant]
+		type MaxResponses: Get<u32>;
 	}
 
 	// The pallet's hooks for offchain worker
@@ -247,7 +253,7 @@ pub mod pallet {
 	#[pallet::storage]
 	#[pallet::getter(fn responses)]
 	pub(super) type Responses<T: Config> =
-		StorageMap<_, Blake2_128Concat, Option<T::AccountId>, Vec<String>>;
+		StorageValue<_, BoundedVec<(Option<T::AccountId>, String), T::MaxResponses>, ValueQuery>;
 
 	// Pallets use events to inform users when important changes are made.
 	#[pallet::event]
@@ -271,6 +277,8 @@ pub mod pallet {
 		ConnectionAlreadyExists,
 		/// Returned if the connection does not exist.
 		ConnectionDoesNotExist,
+		/// Returned if the response is too large.
+		ResponseTooLarge,
 	}
 
 	#[pallet::validate_unsigned]
@@ -466,7 +474,7 @@ impl<T: Config> Pallet<T> {
 		} else {
 			log::warn!("Unable to extract response from the CyberHub: {:?}", body_str);
 			Err(http::Error::Unknown)
-		};		
+		};
 
 		response
 	}
@@ -475,13 +483,24 @@ impl<T: Config> Pallet<T> {
 	fn add_response(maybe_who: Option<T::AccountId>, response: String) {
 		log::info!("Adding response to the list: {}", response);
 
-		// Add the new response to the list.
-		if let Some(who) = maybe_who.clone() {
-			Responses::<T>::mutate(&who, |responses: &mut Vec<(String, Option<T::AccountId>)>| {
-				responses.push((response.clone(), maybe_who.clone()));
-			});
-			// here we are raising the NewResponse event
-			Self::deposit_event(Event::NewResponse { response, maybe_who });
+		// Get the current list of responses.
+		let mut responses = Responses::<T>::get();
+
+		// Ensure that the list of responses doesn't exceed the maximum size.
+		ensure!(responses.len() < T::MaxResponses::get() as usize, "Responses list is full.");
+
+		// Attempt to append the new response to the list.
+		match responses.try_push((maybe_who.clone(), response.clone())) {
+			Ok(_) => {
+				// Update the storage.
+				Responses::<T>::put(responses);
+
+				// Emit an event that new response has been received.
+				Self::deposit_event(Event::NewResponse { maybe_who, response });
+			},
+			Err(_) => {
+				log::warn!("Unable to add response. Maximum number of responses reached.");
+			},
 		}
 	}
 }
