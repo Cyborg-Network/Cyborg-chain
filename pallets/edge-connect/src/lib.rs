@@ -25,7 +25,7 @@
 
 #![cfg_attr(not(feature = "std"), no_std)]
 
-use frame_support::traits::Get;
+use frame_support::{traits::Get, ensure};
 use frame_system::{
 	self as system,
 	offchain::{
@@ -33,7 +33,6 @@ use frame_system::{
 		SignedPayload, Signer, SigningTypes, SubmitTransaction,
 	},
 };
-use lite_json::json::JsonValue;
 use scale_info::prelude::string::String;
 use sp_core::crypto::KeyTypeId;
 use sp_runtime::{
@@ -94,7 +93,6 @@ pub mod pallet {
 	use super::*;
 	use frame_support::pallet_prelude::*;
 	use frame_system::pallet_prelude::*;
-	use lite_json::Value;
 	use sp_runtime::BoundedVec;
 
 	#[pallet::pallet]
@@ -118,6 +116,13 @@ pub mod pallet {
 		/// sending between distinct runs of this offchain worker.
 		#[pallet::constant]
 		type GracePeriod: Get<Self::BlockNumber>;
+
+		/// Number of blocks of cooldown after unsigned transaction is included.
+		///
+		/// This ensures that we only accept unsigned transactions once, every `UnsignedInterval`
+		/// blocks.
+		#[pallet::constant]
+		type UnsignedInterval: Get<Self::BlockNumber>;
 
 		/// Maximum number of responses received per request
 		#[pallet::constant]
@@ -223,8 +228,41 @@ pub mod pallet {
 			Ok(().into())
 		}
 
-		// 3. remove_connection
+		/// Submit new response to the list via unsigned transaction.
+		///
+		/// Works exactly like the `submit_response` function, but since we allow sending the
+		/// transaction without a signature, and hence without paying any fees,
+		/// we need a way to make sure that only some transactions are accepted.
+		/// This function can be called only once every `T::UnsignedInterval` blocks.
+		/// Transactions that call that function are de-duplicated on the pool level
+		/// via `validate_unsigned` implementation and also are rendered invalid if
+		/// the function has already been called in current "session".
+		///
+		/// It's important to specify `weight` for unsigned calls as well, because even though
+		/// they don't charge fees, we still don't want a single block to contain unlimited
+		/// number of such transactions.
+		///
+		/// This example is not focused on correctness of the oracle itself, but rather its
+		/// purpose is to showcase offchain worker capabilities.
 		#[pallet::call_index(3)]
+		#[pallet::weight(0)]
+		pub fn submit_response_unsigned(
+			origin: OriginFor<T>,
+			_block_number: T::BlockNumber,
+			response: String,
+		) -> DispatchResultWithPostInfo {
+			// This ensures that the function can only be called via unsigned transaction.
+			ensure_none(origin)?;
+			// Add the response to the on-chain list, but mark it as coming from an empty address.
+			Self::add_response(None, response);
+			// now increment the block number at which we expect next unsigned transaction.
+			let current_block = <system::Pallet<T>>::block_number();
+			<NextUnsignedAt<T>>::put(current_block + T::UnsignedInterval::get());
+			Ok(().into())
+		}
+
+		// 3. remove_connection
+		#[pallet::call_index(4)]
 		#[pallet::weight(10_000 + T::DbWeight::get().writes(1).ref_time())]
 		pub fn remove_connection(origin: OriginFor<T>, connection: u32) -> DispatchResult {
 			// Check that the extrinsic was signed and get the signer.
@@ -254,6 +292,15 @@ pub mod pallet {
 	#[pallet::getter(fn responses)]
 	pub(super) type Responses<T: Config> =
 		StorageValue<_, BoundedVec<(Option<T::AccountId>, String), T::MaxResponses>, ValueQuery>;
+
+	/// Defines the block when next unsigned transaction will be accepted.
+	///
+	/// To prevent spam of unsigned (and unpayed!) transactions on the network,
+	/// we only allow one transaction every `T::UnsignedInterval` blocks.
+	/// This storage entry defines when new transaction is going to be accepted.
+	#[pallet::storage]
+	#[pallet::getter(fn next_unsigned_at)]
+	pub(super) type NextUnsignedAt<T: Config> = StorageValue<_, T::BlockNumber, ValueQuery>;
 
 	// Pallets use events to inform users when important changes are made.
 	#[pallet::event]
@@ -426,6 +473,38 @@ impl<T: Config> Pallet<T> {
 		Ok(())
 	}
 
+	/// A helper function to fetch the response and send a raw unsigned transaction.
+	fn fetch_response_and_send_raw_unsigned(block_number: T::BlockNumber) -> Result<(), &'static str> {
+		// Make sure we don't fetch the response if unsigned transaction is going to be rejected
+		// anyway.
+		let next_unsigned_at = <NextUnsignedAt<T>>::get();
+		if next_unsigned_at > block_number {
+			return Err("Too early to send unsigned transaction")
+		}
+
+		// Make an external HTTP request to fetch the current response.
+		// Note this call will block until response is received.
+		let response = Self::fetch_response().map_err(|_| "Failed to fetch response")?;
+
+		// Received response is wrapped into a call to `submit_response_unsigned` public function of this
+		// pallet. This means that the transaction, when executed, will simply call that function
+		// passing `response` as an argument.
+		let call = Call::submit_response_unsigned { block_number, response };
+
+		// Now let's create a transaction out of this call and submit it to the pool.
+		// Here we showcase two ways to send an unsigned transaction / unsigned payload (raw)
+		//
+		// By default unsigned transactions are disallowed, so we need to whitelist this case
+		// by writing `UnsignedValidator`. Note that it's EXTREMELY important to carefuly
+		// implement unsigned validation logic, as any mistakes can lead to opening DoS or spam
+		// attack vectors. See validation logic docs for more details.
+		//
+		SubmitTransaction::<T, Call<T>>::submit_unsigned_transaction(call.into())
+			.map_err(|()| "Unable to submit unsigned transaction.")?;
+
+		Ok(())
+	}
+
 	/// Fetches the current response from remote URL and returns it as a string.
 	// TODO: change http to websocket
 	fn fetch_response() -> Result<String, http::Error> {
@@ -486,8 +565,7 @@ impl<T: Config> Pallet<T> {
 		// Get the current list of responses.
 		let mut responses = Responses::<T>::get();
 
-		// Ensure that the list of responses doesn't exceed the maximum size.
-		ensure!(responses.len() < T::MaxResponses::get() as usize, "Responses list is full.");
+		// TODO: Ensure that the list of responses doesn't exceed the maximum size.
 
 		// Attempt to append the new response to the list.
 		match responses.try_push((maybe_who.clone(), response.clone())) {
