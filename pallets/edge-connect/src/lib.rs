@@ -25,6 +25,7 @@
 
 #![cfg_attr(not(feature = "std"), no_std)]
 
+use frame_support::traits::Get;
 use frame_system::{
 	self as system,
 	offchain::{
@@ -33,6 +34,16 @@ use frame_system::{
 	},
 };
 use sp_core::crypto::KeyTypeId;
+use sp_runtime::{
+	offchain::{
+		http,
+		storage::{MutateStorageError, StorageRetrievalError, StorageValueRef},
+		Duration,
+	},
+	traits::Zero,
+	transaction_validity::{InvalidTransaction, TransactionValidity, ValidTransaction},
+	RuntimeDebug,
+};
 use scale_info::prelude::string::String;
 
 
@@ -94,6 +105,16 @@ pub mod pallet {
 
 		/// Authority ID used for offchain worker
 		type AuthorityId: AppCrypto<Self::Public, Self::Signature>;
+
+		// Configuration parameters
+
+		/// A grace period after we send transaction.
+		///
+		/// To avoid sending too many transactions, we only attempt to send one
+		/// every `GRACE_PERIOD` blocks. We use Local Storage to coordinate
+		/// sending between distinct runs of this offchain worker.
+		#[pallet::constant]
+		type GracePeriod: Get<Self::BlockNumber>;
 	}
 
 	// The pallet's hooks for offchain worker
@@ -248,19 +269,103 @@ pub mod pallet {
 		/// here we make sure that some particular calls (the ones produced by offchain worker)
 		/// are being whitelisted and marked as valid.
 		fn validate_unsigned(source: TransactionSource, call: &Self::Call) -> TransactionValidity {
-			let valid_tx = |provide| {
-				ValidTransaction::with_tag_prefix("my-pallet")
-					.priority(UNSIGNED_TXS_PRIORITY)
-					.and_provides([&provide])
-					.longevity(3)
-					.propagate(true)
-					.build()
-			};
-
-			match call {
-				RuntimeCall::my_unsigned_tx { key: value } => valid_tx(b"my_unsigned_tx".to_vec()),
-				_ => InvalidTransaction::Call.into(),
+			// Firstly let's check that we call the right function.
+			if let Call::submit_response_unsigned_with_signed_payload {
+				response_payload: ref payload,
+				ref signature,
+			} = call
+			{
+				let signature_valid =
+					SignedPayload::<T>::verify::<T::AuthorityId>(payload, signature.clone());
+				if !signature_valid {
+					return InvalidTransaction::BadProof.into()
+				}
+				Self::validate_transaction_parameters(&payload.block_number, &payload.response)
+			} else if let Call::submit_response_unsigned { block_number, response: new_response } = call {
+				Self::validate_transaction_parameters(block_number, new_response)
+			} else {
+				InvalidTransaction::Call.into()
 			}
+		}
+	}
+}
+
+enum TransactionType {
+	Signed,
+	UnsignedForAny,
+	UnsignedForAll,
+	Raw,
+	None,
+}
+
+impl<T: Config> Pallet<T> {
+	/// Chooses which transaction type to send.
+	///
+	/// This function serves mostly to showcase `StorageValue` helper
+	/// and local storage usage.
+	///
+	/// Returns a type of transaction that should be produced in current run.
+	fn choose_transaction_type(block_number: T::BlockNumber) -> TransactionType {
+		/// A friendlier name for the error that is going to be returned in case we are in the grace
+		/// period.
+		const RECENTLY_SENT: () = ();
+
+		// Start off by creating a reference to Local Storage value.
+		// Since the local storage is common for all offchain workers, it's a good practice
+		// to prepend your entry with the module name.
+		let val = StorageValueRef::persistent(b"example_ocw::last_send");
+		// The Local Storage is persisted and shared between runs of the offchain workers,
+		// and offchain workers may run concurrently. We can use the `mutate` function, to
+		// write a storage entry in an atomic fashion. Under the hood it uses `compare_and_set`
+		// low-level method of local storage API, which means that only one worker
+		// will be able to "acquire a lock" and send a transaction if multiple workers
+		// happen to be executed concurrently.
+		let res = val.mutate(|last_send: Result<Option<T::BlockNumber>, StorageRetrievalError>| {
+			match last_send {
+				// If we already have a value in storage and the block number is recent enough
+				// we avoid sending another transaction at this time.
+				Ok(Some(block)) if block_number < block + T::GracePeriod::get() =>
+					Err(RECENTLY_SENT),
+				// In every other case we attempt to acquire the lock and send a transaction.
+				_ => Ok(block_number),
+			}
+		});
+
+		// The result of `mutate` call will give us a nested `Result` type.
+		// The first one matches the return of the closure passed to `mutate`, i.e.
+		// if we return `Err` from the closure, we get an `Err` here.
+		// In case we return `Ok`, here we will have another (inner) `Result` that indicates
+		// if the value has been set to the storage correctly - i.e. if it wasn't
+		// written to in the meantime.
+		match res {
+			// The value has been set correctly, which means we can safely send a transaction now.
+			Ok(block_number) => {
+				// We will send different transactions based on a random number.
+				// Note that this logic doesn't really guarantee that the transactions will be sent
+				// in an alternating fashion (i.e. fairly distributed). Depending on the execution
+				// order and lock acquisition, we may end up for instance sending two `Signed`
+				// transactions in a row. If a strict order is desired, it's better to use
+				// the storage entry for that. (for instance store both block number and a flag
+				// indicating the type of next transaction to send).
+				let transaction_type = block_number % 4u32.into();
+				if transaction_type == Zero::zero() {
+					TransactionType::Signed
+				} else if transaction_type == T::BlockNumber::from(1u32) {
+					TransactionType::UnsignedForAny
+				} else if transaction_type == T::BlockNumber::from(2u32) {
+					TransactionType::UnsignedForAll
+				} else {
+					TransactionType::Raw
+				}
+			},
+			// We are in the grace period, we should not send a transaction this time.
+			Err(MutateStorageError::ValueFunctionFailed(RECENTLY_SENT)) => TransactionType::None,
+			// We wanted to send a transaction, but failed to write the block number (acquire a
+			// lock). This indicates that another offchain worker that was running concurrently
+			// most likely executed the same logic and succeeded at writing to storage.
+			// Thus we don't really want to send the transaction, knowing that the other run
+			// already did.
+			Err(MutateStorageError::ConcurrentModification(_)) => TransactionType::None,
 		}
 	}
 }
