@@ -96,58 +96,6 @@ pub mod pallet {
 		type AuthorityId: AppCrypto<Self::Public, Self::Signature>;
 	}
 
-	#[pallet::validate_unsigned]
-	impl<T: Config> ValidateUnsigned for Pallet<T> {
-		type Call = Call<T>;
-
-		/// Validate unsigned call to this module.
-		///
-		/// By default unsigned transactions are disallowed, but implementing the validator
-		/// here we make sure that some particular calls (the ones produced by offchain worker)
-		/// are being whitelisted and marked as valid.
-		fn validate_unsigned(source: TransactionSource, call: &Self::Call) -> TransactionValidity {
-			let valid_tx = |provide| {
-				ValidTransaction::with_tag_prefix("my-pallet")
-					.priority(UNSIGNED_TXS_PRIORITY)
-					.and_provides([&provide])
-					.longevity(3)
-					.propagate(true)
-					.build()
-			};
-
-			match call {
-				RuntimeCall::my_unsigned_tx { key: value } => valid_tx(b"my_unsigned_tx".to_vec()),
-				_ => InvalidTransaction::Call.into(),
-			}
-		}
-	}
-
-	// The pallet's runtime storage items.
-	#[pallet::storage]
-	#[pallet::getter(fn connection)]
-	pub type Connection<T> = StorageValue<_, u32>; // TODO: change to the proper data structure
-
-	// Pallets use events to inform users when important changes are made.
-	#[pallet::event]
-	#[pallet::generate_deposit(pub(super) fn deposit_event)]
-	pub enum Event<T: Config> {
-		/// Event documentation should end with an array that provides descriptive names for event
-		/// parameters. [connection, who]
-		ConnectionCreated { connection: u32, who: T::AccountId },
-		/// Event documentation should end with an array that provides descriptive names for event
-		/// parameters. [connection, who]
-		ConnectionRemoved { connection: u32, who: T::AccountId },
-	}
-
-	// Errors inform users that something went wrong.
-	#[pallet::error]
-	pub enum Error<T> {
-		/// Returned if the connection already exists.
-		ConnectionAlreadyExists,
-		/// Returned if the connection does not exist.
-		ConnectionDoesNotExist,
-	}
-
 	// The pallet's hooks for offchain worker
 	#[pallet::hooks]
 	impl<T: Config> Hooks<BlockNumberFor<T>> for Pallet<T> {
@@ -226,7 +174,7 @@ pub mod pallet {
 			// Return a successful DispatchResult
 			Ok(());
 		}
-		
+
 		// 2. receive_response (ocw)
 		#[pallet::call_index(2)]
 		#[pallet::weight({0})]
@@ -261,6 +209,58 @@ pub mod pallet {
 
 			// Return a successful DispatchResult
 			Ok(());
+		}
+	}
+
+	// The pallet's runtime storage items.
+	#[pallet::storage]
+	#[pallet::getter(fn connection)]
+	pub type Connection<T> = StorageValue<_, u32>; // TODO: change to the proper data structure
+
+	// Pallets use events to inform users when important changes are made.
+	#[pallet::event]
+	#[pallet::generate_deposit(pub(super) fn deposit_event)]
+	pub enum Event<T: Config> {
+		/// Event documentation should end with an array that provides descriptive names for event
+		/// parameters. [connection, who]
+		ConnectionCreated { connection: u32, who: T::AccountId },
+		/// Event documentation should end with an array that provides descriptive names for event
+		/// parameters. [connection, who]
+		ConnectionRemoved { connection: u32, who: T::AccountId },
+	}
+
+	// Errors inform users that something went wrong.
+	#[pallet::error]
+	pub enum Error<T> {
+		/// Returned if the connection already exists.
+		ConnectionAlreadyExists,
+		/// Returned if the connection does not exist.
+		ConnectionDoesNotExist,
+	}
+
+	#[pallet::validate_unsigned]
+	impl<T: Config> ValidateUnsigned for Pallet<T> {
+		type Call = Call<T>;
+
+		/// Validate unsigned call to this module.
+		///
+		/// By default unsigned transactions are disallowed, but implementing the validator
+		/// here we make sure that some particular calls (the ones produced by offchain worker)
+		/// are being whitelisted and marked as valid.
+		fn validate_unsigned(source: TransactionSource, call: &Self::Call) -> TransactionValidity {
+			let valid_tx = |provide| {
+				ValidTransaction::with_tag_prefix("my-pallet")
+					.priority(UNSIGNED_TXS_PRIORITY)
+					.and_provides([&provide])
+					.longevity(3)
+					.propagate(true)
+					.build()
+			};
+
+			match call {
+				RuntimeCall::my_unsigned_tx { key: value } => valid_tx(b"my_unsigned_tx".to_vec()),
+				_ => InvalidTransaction::Call.into(),
+			}
 		}
 	}
 }
