@@ -33,6 +33,7 @@ use frame_system::{
 		SignedPayload, Signer, SigningTypes, SubmitTransaction,
 	},
 };
+use scale_info::prelude::string::String;
 use sp_core::crypto::KeyTypeId;
 use sp_runtime::{
 	offchain::{
@@ -44,7 +45,6 @@ use sp_runtime::{
 	transaction_validity::{InvalidTransaction, TransactionValidity, ValidTransaction},
 	RuntimeDebug,
 };
-use scale_info::prelude::string::String;
 use sp_std::vec::Vec;
 
 // #[cfg(test)]
@@ -199,20 +199,21 @@ pub mod pallet {
 			Ok(());
 		}
 
-		// 2. receive_response (ocw)
+		// 2. submit_response (ocw)
 		#[pallet::call_index(2)]
 		#[pallet::weight({0})]
-		pub fn receive_response(origin: OriginFor<T>) -> DispatchResult {
+		pub fn submit_response(origin: OriginFor<T>, response: String) -> DispatchResult {
 			// Retrieve the signer and check it is valid.
 			let who = ensure_signed(origin)?;
 
 			// Check that the connection exists.
 			ensure!(<Connection<T>>::exists(), Error::<T>::ConnectionDoesNotExist);
 
-			// TODO: receive response from ocw
+			// Submit response received from CyberHub
+			Self::add_response(Some(who), response);
 
 			// Return a successful DispatchResult
-			Ok(());
+			Ok(().into())
 		}
 
 		// 3. remove_connection
@@ -241,6 +242,12 @@ pub mod pallet {
 	#[pallet::getter(fn connection)]
 	pub type Connection<T> = StorageValue<_, u32>; // TODO: change to the proper data structure
 
+	/// A vector of recently submitted responses.
+	#[pallet::storage]
+	#[pallet::getter(fn responses)]
+	pub(super) type Responses<T: Config> =
+		StorageMap<_, Blake2_128Concat, Option<T::AccountId>, Vec<String>>;
+
 	// Pallets use events to inform users when important changes are made.
 	#[pallet::event]
 	#[pallet::generate_deposit(pub(super) fn deposit_event)]
@@ -251,6 +258,9 @@ pub mod pallet {
 		/// Event documentation should end with an array that provides descriptive names for event
 		/// parameters. [connection, who]
 		ConnectionRemoved { connection: u32, who: T::AccountId },
+		/// Event generated when a response is received from CyberHub.
+		/// [response, maybe_who]
+		NewResponse { response: String, maybe_who: Option<T::AccountId> },
 	}
 
 	// Errors inform users that something went wrong.
@@ -284,7 +294,9 @@ pub mod pallet {
 					return InvalidTransaction::BadProof.into()
 				}
 				Self::validate_transaction_parameters(&payload.block_number, &payload.response)
-			} else if let Call::submit_response_unsigned { block_number, response: new_response } = call {
+			} else if let Call::submit_response_unsigned { block_number, response: new_response } =
+				call
+			{
 				Self::validate_transaction_parameters(block_number, new_response)
 			} else {
 				InvalidTransaction::Call.into()
@@ -459,5 +471,19 @@ impl<T: Config> Pallet<T> {
 		log::warn!("Got response: {}", response);
 
 		Ok(response)
+	}
+
+	/// Add new response to the list.
+	fn add_response(maybe_who: Option<T::AccountId>, response: String) {
+		log::info!("Adding response to the list: {}", response);
+
+		// Add the new response to the list.
+		if let Some(who) = maybe_who.clone() {
+			Responses::<T>::mutate(&who, |responses: &mut Vec<(String, Option<T::AccountId>)>| {
+				responses.push((response.clone(), maybe_who.clone()));
+			});
+			// here we are raising the NewResponse event
+			Self::deposit_event(Event::NewResponse { response, maybe_who });
+		}
 	}
 }
