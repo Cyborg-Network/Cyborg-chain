@@ -226,6 +226,7 @@ pub mod pallet {
 			// Return a successful DispatchResult
 			Ok(());
 		}
+		
 		// 2. receive_response (ocw)
 		#[pallet::call_index(2)]
 		#[pallet::weight({0})]
@@ -240,26 +241,26 @@ pub mod pallet {
 
 			// Return a successful DispatchResult
 			Ok(());
+		}
 
-			// 3. remove_connection
-			#[pallet::call_index(3)]
-			#[pallet::weight(10_000 + T::DbWeight::get().writes(1).ref_time())]
-			pub fn remove_connection(origin: OriginFor<T>, connection: u32) -> DispatchResult {
-				// Check that the extrinsic was signed and get the signer.
-				let who = ensure_signed(origin)?;
+		// 3. remove_connection
+		#[pallet::call_index(3)]
+		#[pallet::weight(10_000 + T::DbWeight::get().writes(1).ref_time())]
+		pub fn remove_connection(origin: OriginFor<T>, connection: u32) -> DispatchResult {
+			// Check that the extrinsic was signed and get the signer.
+			let who = ensure_signed(origin)?;
 
-				// Check that the connection exists.
-				ensure!(<Connection<T>>::exists(), Error::<T>::ConnectionDoesNotExist);
+			// Check that the connection exists.
+			ensure!(<Connection<T>>::exists(), Error::<T>::ConnectionDoesNotExist);
 
-				// Update storage.
-				<Connection<T>>::kill();
+			// Update storage.
+			<Connection<T>>::kill();
 
-				// Emit an event.
-				Self::deposit_event(Event::ConnectionRemoved { connection, who });
+			// Emit an event.
+			Self::deposit_event(Event::ConnectionRemoved { connection, who });
 
-				// Return a successful DispatchResult
-				Ok(());
-			}
+			// Return a successful DispatchResult
+			Ok(());
 		}
 	}
 }
