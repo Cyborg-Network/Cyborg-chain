@@ -203,7 +203,7 @@ pub mod pallet {
 			// TODO: send command to ocw
 
 			// Return a successful DispatchResult
-			Ok(());
+			Ok(())
 		}
 
 		// 2. submit_response (ocw * 3)
@@ -240,7 +240,7 @@ pub mod pallet {
 			Self::deposit_event(Event::ConnectionRemoved { connection, who });
 
 			// Return a successful DispatchResult
-			Ok(());
+			Ok(())
 		}
 	}
 
