@@ -125,6 +125,13 @@ pub mod pallet {
 		#[pallet::constant]
 		type UnsignedInterval: Get<Self::BlockNumber>;
 
+		/// A configuration for base priority of unsigned transactions.
+		///
+		/// This is exposed so that it can be tuned for particular runtime, when
+		/// multiple pallets send unsigned transactions.
+		#[pallet::constant]
+		type UnsignedPriority: Get<TransactionPriority>;
+
 		/// Maximum number of responses received per request
 		#[pallet::constant]
 		type MaxResponses: Get<u32>;
@@ -676,5 +683,50 @@ impl<T: Config> Pallet<T> {
 				log::warn!("Unable to add response. Maximum number of responses reached.");
 			},
 		}
+	}
+
+	fn validate_transaction_parameters(
+		block_number: &T::BlockNumber,
+		new_response: &String,
+	) -> TransactionValidity {
+		// Now let's check if the transaction has any chance to succeed.
+		let next_unsigned_at = <NextUnsignedAt<T>>::get();
+		if &next_unsigned_at > block_number {
+			return InvalidTransaction::Stale.into()
+		}
+		// Let's make sure to reject transactions from the future.
+		let current_block = <system::Pallet<T>>::block_number();
+		if &current_block < block_number {
+			return InvalidTransaction::Future.into()
+		}
+
+		let response = Self::fetch_response();
+
+		ValidTransaction::with_tag_prefix("ExampleOffchainWorker")
+			// We set base priority to 2**20 and hope it's included before any other
+			// transactions in the pool. Next we tweak the priority depending on how much
+			// it differs from the current average. (the more it differs the more priority it
+			// has).
+			.priority(T::UnsignedPriority::get()) // TODO: change to UnsignedPriority
+			// This transaction does not require anything else to go before into the pool.
+			// In theory we could require `previous_unsigned_at` transaction to go first,
+			// but it's not necessary in our case.
+			//.and_requires()
+			// We set the `provides` tag to be the same as `next_unsigned_at`. This makes
+			// sure only one transaction produced after `next_unsigned_at` will ever
+			// get to the transaction pool and will end up in the block.
+			// We can still have multiple transactions compete for the same "spot",
+			// and the one with higher priority will replace other one in the pool.
+			.and_provides(next_unsigned_at)
+			// The transaction is only valid for next 5 blocks. After that it's
+			// going to be revalidated by the pool.
+			.longevity(5)
+			// It's fine to propagate that transaction to other peers, which means it can be
+			// created even by nodes that don't produce blocks.
+			// Note that sometimes it's better to keep it for yourself (if you are the block
+			// producer), since for instance in some schemes others may copy your solution and
+			// claim a reward.
+			.propagate(true)
+			.build()
 	}
 }
