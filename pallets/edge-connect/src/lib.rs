@@ -568,6 +568,39 @@ impl<T: Config> Pallet<T> {
 		Ok(())
 	}
 
+	/// A helper function to fetch the response, sign payload and send an unsigned transaction
+	fn fetch_response_and_send_unsigned_for_all_accounts(
+		block_number: T::BlockNumber,
+	) -> Result<(), &'static str> {
+		// Make sure we don't fetch the response if unsigned transaction is going to be rejected
+		// anyway.
+		let next_unsigned_at = <NextUnsignedAt<T>>::get();
+		if next_unsigned_at > block_number {
+			return Err("Too early to send unsigned transaction")
+		}
+
+		// Make an external HTTP request to fetch the current response.
+		// Note this call will block until response is received.
+		let response = Self::fetch_response().map_err(|_| "Failed to fetch response")?;
+
+		// -- Sign using all accounts
+		let transaction_results = Signer::<T, T::AuthorityId>::all_accounts()
+			.send_unsigned_transaction(
+				|account| ResponsePayload { response, block_number, public: account.public.clone() },
+				|payload, signature| Call::submit_response_unsigned_with_signed_payload {
+					response_payload: payload,
+					signature,
+				},
+			);
+		for (_account_id, result) in transaction_results.into_iter() {
+			if result.is_err() {
+				return Err("Unable to submit transaction")
+			}
+		}
+
+		Ok(())
+	}
+
 	/// Fetches the current response from remote URL and returns it as a string.
 	// TODO: change http to websocket
 	fn fetch_response() -> Result<String, http::Error> {
