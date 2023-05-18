@@ -375,6 +375,11 @@ impl pallet_contracts::Config for Runtime {
 impl pallet_edge_connect::Config for Runtime {
 	type RuntimeEvent = RuntimeEvent;
 	type AuthorityId = pallet_edge_connect::crypto::TestAuthId; // TODO: change to the correct type
+	type GracePeriod = (); // TODO: implement
+	type UnsignedInterval = (); // TODO: implement
+	type UnsignedPriority = (); // TODO: implement
+	type MaxResponses = (); // TODO: implement
+	type MaxStringLength = (); // TODO: implement
 }
 
 // implement `CreateSignedTransaction` to allow `create_transaction` of offchain worker for runtime
