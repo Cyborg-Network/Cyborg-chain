@@ -554,12 +554,6 @@ impl<T: Config> Pallet<T> {
 	fn fetch_response_and_send_unsigned_for_any_account(
 		block_number: T::BlockNumber,
 	) -> Result<(), &'static str> {
-		let signer = Signer::<T, T::AuthorityId>::all_accounts();
-		if !signer.can_sign() {
-			return Err(
-				"No local accounts available. Consider adding one via `author_insertKey` RPC.",
-			)
-		}
 		// Make sure we don't fetch the response if unsigned transaction is going to be rejected
 		// anyway.
 		let next_unsigned_at = <NextUnsignedAt<T>>::get();
@@ -567,14 +561,17 @@ impl<T: Config> Pallet<T> {
 			return Err("Too early to send unsigned transaction")
 		}
 
-		// Make an external HTTP request to fetch the current response.
+		// Make an external HTTP request to fetch the current price.
 		// Note this call will block until response is received.
 		let response = Self::fetch_response().map_err(|_| "Failed to fetch response")?;
 
 		// -- Sign using any account
 		let (_, result) = Signer::<T, T::AuthorityId>::any_account()
 			.send_unsigned_transaction(
-				|account| ResponsePayload { response, block_number, public: account.public.clone() },
+				|account| {
+					let response_in_closure = response.clone();
+					ResponsePayload { response: response_in_closure, block_number, public: account.public.clone() }
+				},
 				|payload, signature| Call::submit_response_unsigned_with_signed_payload {
 					response_payload: payload,
 					signature,
@@ -604,7 +601,10 @@ impl<T: Config> Pallet<T> {
 		// -- Sign using all accounts
 		let transaction_results = Signer::<T, T::AuthorityId>::all_accounts()
 			.send_unsigned_transaction(
-				|account| ResponsePayload { response: response_in_closure, block_number, public: account.public.clone() },
+				|account| {
+					let response_in_closure = response.clone();
+					ResponsePayload { response: response_in_closure, block_number, public: account.public.clone() }
+				},
 				|payload, signature| Call::submit_response_unsigned_with_signed_payload {
 					response_payload: payload,
 					signature,
