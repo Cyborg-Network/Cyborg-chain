@@ -571,18 +571,17 @@ impl<T: Config> Pallet<T> {
 		// Note this call will block until response is received.
 		let response = Self::fetch_response().map_err(|_| "Failed to fetch response")?;
 
-		// Create a clone of the response for use in the log::info call
-    	let response_for_log = response.clone();
-
 		// -- Sign using any account
-		let results = signer.send_signed_transaction(
-			|_account| {
-				// Clone the response inside this closure
-				let response_clonode = response.clone();
-				ResponsePayload { response: response_in_closure, block_number, public: account.public.clone() }
-			},
-		);
-		
+		let (_, result) = Signer::<T, T::AuthorityId>::any_account()
+			.send_unsigned_transaction(
+				|account| ResponsePayload { response, block_number, public: account.public.clone() },
+				|payload, signature| Call::submit_response_unsigned_with_signed_payload {
+					response_payload: payload,
+					signature,
+				},
+			)
+			.ok_or("No local accounts accounts available.")?;
+		result.map_err(|()| "Unable to submit transaction")?;
 
 		Ok(())
 	}
