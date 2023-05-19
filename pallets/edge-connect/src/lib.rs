@@ -216,15 +216,35 @@ pub mod pallet {
 			// Check that the connection exists.
 			ensure!(<Connection<T>>::exists(), Error::<T>::ConnectionDoesNotExist);
 
-			// TODO: send command to ocw
+			// Make sure the `command` == `ping`
+			ensure!(command == "ping", Error::<T>::InvalidCommand);
+
+			// Send a `ping` command to CyberHub
+			let _request = Self::send_ping();
+
+			// TODO [DISCUSSION]: At this point, it would typically pass the request to an offchain worker to send it.
+    		// In the current form, the `send_ping` function only builds the request, it does not send it.
+
+			// Emit an event.
+			Self::deposit_event(Event::CommandSent { command, who });
 
 			// Return a successful DispatchResult
 			Ok(())
 		}
 
-		// 2. submit_response (ocw * 3)
 		#[pallet::call_index(2)]
 		#[pallet::weight({0})]
+		/// Submit new response to the list.
+		///
+		/// This method is a public function of the module and can be called from within
+		/// a transaction. It appends given `response` to current list of responses.
+		/// The `offchain worker` will create, sign & submit a transaction that
+		/// calls this function passing the response.
+		///
+		/// The transaction needs to be signed (see `ensure_signed`) check, so that the caller
+		/// pays a fee to execute it.
+		/// This makes sure that it's not easy (or rather cheap) to attack the chain by submitting
+		/// excessive transactions.
 		pub fn submit_response(origin: OriginFor<T>, response: String) -> DispatchResult {
 			// Retrieve the signer and check it is valid.
 			let who = ensure_signed(origin)?;
@@ -340,6 +360,9 @@ pub mod pallet {
 		/// Event documentation should end with an array that provides descriptive names for event
 		/// parameters. [connection, who]
 		ConnectionRemoved { connection: u32, who: T::AccountId },
+		/// Event generated when a new command is sent to CyberHub.
+		/// [command, who]
+		CommandSent { command: String, who: T::AccountId },
 		/// Event generated when a response is received from CyberHub.
 		/// [response, maybe_who]
 		NewResponse { response: String, maybe_who: Option<T::AccountId> },
@@ -354,6 +377,8 @@ pub mod pallet {
 		ConnectionDoesNotExist,
 		/// Returned if the response is too large.
 		ResponseTooLarge,
+		/// Return error if the command is not valid.
+		InvalidCommand,
 	}
 
 	#[pallet::validate_unsigned]
@@ -561,7 +586,7 @@ impl<T: Config> Pallet<T> {
 			return Err("Too early to send unsigned transaction")
 		}
 
-		// Make an external HTTP request to fetch the current price.
+		// Make an external HTTP request to fetch the current response.
 		// Note this call will block until response is received.
 		let response = Self::fetch_response().map_err(|_| "Failed to fetch response")?;
 
@@ -752,4 +777,15 @@ impl<T: Config> Pallet<T> {
 			.propagate(true)
 			.build()
 	}
+
+	fn send_ping() -> http::Request<'static, &'static str> {
+		// Send the `ping` command to CyberHub
+		let post_request = http::Request::post(
+			"http://cyborg-url:8080/ping",
+			r#"{"command": "ping"}"#,
+		);
+	
+		post_request
+	}
+		
 }
