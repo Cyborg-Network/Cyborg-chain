@@ -93,13 +93,14 @@ pub fn new_partial(
 		telemetry
 	});
 
+	let keystore = keystore_container.sync_keystore();
 	if config.offchain_worker.enabled {
 		// Initialize seed for signing transaction using offchain workers. This is a convenience
 		// so learners can see the transactions submitted simply running the node.
 		// Typically these keys should be inserted with RPC calls to `author_insertKey`.
 		sp_keystore::SyncCryptoStore::sr25519_generate_new(
 			&*keystore,
-			node_template_runtime::pallet_your_ocw_pallet::KEY_TYPE,
+			cyborg_runtime::pallet_edge_connect::KEY_TYPE,
 			Some("//Alice"),
 		)
 		.expect("Creating key with account Alice should succeed.");
