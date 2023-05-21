@@ -35,10 +35,11 @@ use frame_system::{
 	},
 };
 use scale_info::prelude::string::String;
+use lite_json::json::JsonValue;
 use sp_core::crypto::KeyTypeId;
 use sp_runtime::{
 	offchain::{
-		http,
+		http::{self},
 		storage::{MutateStorageError, StorageRetrievalError, StorageValueRef},
 		Duration,
 	},
@@ -46,7 +47,8 @@ use sp_runtime::{
 	transaction_validity::{InvalidTransaction, TransactionValidity, ValidTransaction},
 	RuntimeDebug, BoundedVec,
 };
-use sp_std::vec::Vec;
+// use sp_std::vec::Vec;
+use sp_std::prelude::*;
 
 // #[cfg(test)]
 // mod mock;
@@ -85,6 +87,25 @@ pub mod crypto {
 		type GenericSignature = sp_core::sr25519::Signature;
 		type GenericPublic = sp_core::sr25519::Public;
 	}
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Encode, Decode)]
+pub struct ResponseData {
+	pub response_type: Vec<u8>,
+	pub id: Vec<u8>,
+	pub response_ref: Vec<u8>,
+	pub timestamp: u64,
+	pub status_code: u16,
+	pub node_id: Vec<u8>,
+	pub args: Vec<Vec<u8>>,
+	pub data: Vec<Vec<u8>>,
+}
+
+// Implement Display for ResponseData
+impl fmt::Display for ResponseData {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{:?}", self)  // change this according to your needs
+    }
 }
 
 pub use pallet::*;
@@ -657,7 +678,7 @@ impl<T: Config> Pallet<T> {
 		// you can find in `sp_io`. The API is trying to be similar to `reqwest`, but
 		// since we are running in a custom WASM execution environment we can't simply
 		// import the library here.
-		let request = http::Request::get("https:127.0.0.1:9000/block");
+		let request = http::Request::get("http://127.0.0.1:9000/block");
 		// We set the deadline for sending of the request, note that awaiting response can
 		// have a separate deadline. Next we send the request, before that it's also possible
 		// to alter request headers or stream body content in case of non-GET requests.
@@ -669,33 +690,105 @@ impl<T: Config> Pallet<T> {
 		// so we can block current thread and wait for it to finish.
 		// Note that since the request is being driven by the host, we don't have to wait
 		// for the request to have it complete, we will just not read the response.
-		let response = pending.try_wait(deadline).map_err(|_| http::Error::DeadlineReached)??;
-		// Let's check the status code before we proceed to reading the response.
+		let response = pending.wait().map_err(|_| http::Error::IoError)?;
+
 		if response.code != 200 {
 			log::warn!("Unexpected status code: {}", response.code);
-			return Err(http::Error::Unknown)
+			return Err(http::Error::Unknown);
 		}
 
 		// Next we want to fully read the response body and collect it to a vector of bytes.
-		// Note that the return object allows you to read the body in chunks as well
-		// with a way to control the deadline.
 		let body = response.body().collect::<Vec<u8>>();
-
 		// Create a str slice from the body.
 		let body_str = sp_std::str::from_utf8(&body).map_err(|_| {
 			log::warn!("No UTF8 body");
 			http::Error::Unknown
 		})?;
 
-		let response = if body_str == "pong" {
-			Ok(String::from(body_str))
-		} else {
-			log::warn!("Unable to extract response from the CyberHub: {:?}", body_str);
-			Err(http::Error::Unknown)
-		};
+		let response = match Self::parse_response(body_str) {
+			Some(response_str) => Ok(response_str),
+			None => {
+				log::warn!("Unable to extract response from the Cyberhub: {:?}", body_str);
+				Err(http::Error::Unknown)
+			},
+		}?;
 
-		response
+		log::warn!("Got response: {}", response);
+
+		Ok(response)
 	}
+
+	/// Parse the response from the given JSON string using `lite-json`.
+	///
+	/// Returns `None` when parsing failed or `Some(response)` when parsing is successful.
+	fn parse_response(response_str: &str) -> Option<ResponseData> {
+		let parsed_json = lite_json::parse_json(response_str);
+	
+		match parsed_json.ok()? {
+			JsonValue::Object(obj) => {
+				let response_data = ResponseData {
+					response_type: obj.get("type").and_then(|v| match v {
+						JsonValue::String(s) => Some(s.into_bytes()),
+						_ => None,
+					})?,
+					id: obj.get("id").and_then(|v| match v {
+						JsonValue::String(s) => Some(s.into_bytes()),
+						_ => None,
+					})?,
+					response_ref: obj.get("ref").and_then(|v| match v {
+						JsonValue::String(s) => Some(s.into_bytes()),
+						_ => None,
+					})?,
+					timestamp: obj.get("timestamp").and_then(|v| match v {
+						JsonValue::Number(n) => Some(*n),
+						_ => None,
+					})?,
+					status_code: obj.get("status_code").and_then(|v| match v {
+						JsonValue::Number(n) => Some(*n as u16),
+						_ => None,
+					})?,
+					node_id: obj.get("node_id").and_then(|v| match v {
+						JsonValue::String(s) => Some(s.into_bytes()),
+						_ => None,
+					})?,
+					args: obj.get("args").and_then(|v| match v {
+						JsonValue::Array(arr) => Some(
+							arr.iter()
+								.filter_map(|x| match x {
+									JsonValue::String(s) => Some(s.into_bytes()),
+									_ => None,
+								})
+								.collect(),
+						),
+						_ => None,
+					})?,
+					data: obj.get("data").and_then(|v| match v {
+						JsonValue::Array(arr) => Some(
+							arr.iter()
+								.filter_map(|x| match x {
+									JsonValue::Array(inner_arr) => Some(
+										inner_arr
+											.iter()
+											.filter_map(|y| match y {
+												JsonValue::String(s) => Some(s.into_bytes()),
+												_ => None,
+											})
+											.collect(),
+									),
+									_ => None,
+								})
+								.collect(),
+						),
+						_ => None,
+					})?,
+				};
+	
+				Some(response_data)
+			}
+			_ => None,
+		}
+	}
+	
 
 	/// Add new response to the list.
 	fn add_response(maybe_who: Option<T::AccountId>, response: String) {
