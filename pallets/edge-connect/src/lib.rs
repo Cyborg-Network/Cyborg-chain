@@ -101,13 +101,6 @@ pub struct ResponseData {
 	pub data: Vec<Vec<u8>>,
 }
 
-// Implement Display for ResponseData
-impl fmt::Display for ResponseData {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{:?}", self)  // change this according to your needs
-    }
-}
-
 pub use pallet::*;
 
 #[frame_support::pallet]
@@ -713,7 +706,7 @@ impl<T: Config> Pallet<T> {
 			},
 		}?;
 
-		log::warn!("Got response: {}", response);
+		log::warn!("Got response: {:?}", response);
 
 		Ok(response)
 	}
