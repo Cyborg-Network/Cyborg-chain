@@ -290,7 +290,7 @@ pub mod pallet {
 			};
 
 			if let Err(e) = result {
-				log::error!("Error: {}", e);
+				log::error!("Error: {:?}", e);
 			}
 		}
 	}
