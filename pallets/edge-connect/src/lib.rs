@@ -35,7 +35,6 @@ use frame_system::{
 	},
 };
 use scale_info::prelude::string::String;
-use serde_json::json::JsonValue;
 use sp_core::crypto::KeyTypeId;
 use sp_runtime::{
 	offchain::{
@@ -51,6 +50,7 @@ use sp_runtime::{
 use sp_std::prelude::*;
 use serde::{Deserialize, Deserializer};
 
+
 // #[cfg(test)]
 // mod mock;
 
@@ -64,9 +64,13 @@ pub const KEY_TYPE: KeyTypeId = KeyTypeId(*b"edge");
 
 const HTTP_REQUEST: &str = "http://127.0.0.1:9000/block";
 
+/// The type to sign and send transactions.
+const UNSIGNED_TXS_PRIORITY: u64 = 100;
+
 pub mod crypto {
 	use super::KEY_TYPE;
 	use sp_core::sr25519::Signature as Sr25519Signature;
+	use sp_std::prelude::*;
 	use sp_runtime::{
 		app_crypto::{app_crypto, sr25519},
 		traits::Verify,
@@ -94,17 +98,30 @@ pub mod crypto {
 
 #[derive(Deserialize, Encode, Decode, Default, RuntimeDebug, scale_info::TypeInfo)]
 pub struct ResponseData {
+	// Specify deserializing function to convert JSON string to vector of bytes
+	#[serde(deserialize_with = "de_string_to_bytes")]
 	pub response_type: Vec<u8>,
+	#[serde(deserialize_with = "de_string_to_bytes")]
 	pub id: Vec<u8>,
+	#[serde(deserialize_with = "de_string_to_bytes")]
 	pub response_ref: Vec<u8>,
-	pub timestamp: u64,
-	pub status_code: u16,
+	#[serde(deserialize_with = "de_string_to_bytes")]
+	pub timestamp: Vec<u8>,
+	#[serde(deserialize_with = "de_string_to_bytes")]
+	pub status_code: Vec<u8>,
+	#[serde(deserialize_with = "de_string_to_bytes")]
 	pub node_id: Vec<u8>,
 	pub args: Vec<Vec<u8>>,
 	pub data: Vec<Vec<u8>>,
 }
 
-pub use pallet::*;
+pub fn de_string_to_bytes<'de, D>(de: D) -> Result<Vec<u8>, D::Error>
+	where
+	D: Deserializer<'de>,
+	{
+		let s: &str = Deserialize::deserialize(de)?;
+		Ok(s.as_bytes().to_vec())
+	}
 
 #[frame_support::pallet]
 pub mod pallet {
@@ -173,27 +190,75 @@ pub mod pallet {
 			let parent_hash = <system::Pallet<T>>::block_hash(block_number - 1u32.into());
 			log::debug!("Current block: {:?} (parent hash: {:?})", block_number, parent_hash);
 
-			let response: String = Self::fetch_response().unwrap_or_else(|e| {
-				log::error!("fetch_response error: {:?}", e);
-				"Failed".into()
-			});
-			log::info!("Response: {}", response);
+			// Here we are showcasing various techniques used when running off-chain workers (ocw)
+			// 1. Sending signed transaction from ocw
+			// 2. Sending unsigned transaction from ocw
+			// 3. Sending unsigned transactions with signed payloads from ocw
+			// 4. Fetching JSON via http requests in ocw
+			const TX_TYPES: u32 = 4;
+			let modu = block_number.try_into().map_or(TX_TYPES, |bn: usize| (bn as u32) % TX_TYPES);
+			let result = match modu {
+				0 => Self::offchain_signed_tx(block_number),
+				1 => Self::offchain_unsigned_tx(block_number),
+				2 => Self::offchain_unsigned_tx_signed_payload(block_number),
+				3 => Self::fetch_response(),
+				_ => Err(Error::<T>::UnknownOffchainTx),
+			};
+
+			// let response: String = Self::fetch_response().unwrap_or_else(|e| {
+			// 	log::error!("fetch_response error: {:?}", e);
+			// 	"Failed".into()
+			// });
+			// log::info!("Response: {}", response);
 
 			// This will send both signed and unsigned transactions
 			// depending on the block number.
 			// Usually it's enough to choose one or the other.
-			let should_send = Self::choose_transaction_type(block_number);
-			let res = match should_send {
-				TransactionType::Signed => Self::fetch_response_and_send_signed(),
-				TransactionType::UnsignedForAny =>
-					Self::fetch_response_and_send_unsigned_for_any_account(block_number),
-				TransactionType::UnsignedForAll =>
-					Self::fetch_response_and_send_unsigned_for_all_accounts(block_number),
-				TransactionType::Raw => Self::fetch_response_and_send_raw_unsigned(block_number),
-				TransactionType::None => Ok(()),
-			};
-			if let Err(e) = res {
+			// let should_send = Self::choose_transaction_type(block_number);
+			// let res = match should_send {
+			// 	TransactionType::Signed => Self::fetch_response_and_send_signed(),
+			// 	TransactionType::UnsignedForAny =>
+			// 		Self::fetch_response_and_send_unsigned_for_any_account(block_number),
+			// 	TransactionType::UnsignedForAll =>
+			// 		Self::fetch_response_and_send_unsigned_for_all_accounts(block_number),
+			// 	TransactionType::Raw => Self::fetch_response_and_send_raw_unsigned(block_number),
+			// 	TransactionType::None => Ok(()),
+			// };
+			if let Err(e) = result {
 				log::error!("Error: {}", e);
+			}
+		}
+	}
+
+	#[pallet::validate_unsigned]
+	impl<T: Config> ValidateUnsigned for Pallet<T> {
+		type Call = Call<T>;
+
+		/// Validate unsigned call to this module.
+		///
+		/// By default unsigned transactions are disallowed, but implementing the validator
+		/// here we make sure that some particular calls (the ones produced by offchain worker)
+		/// are being whitelisted and marked as valid.
+		fn validate_unsigned(source: TransactionSource, call: &Self::Call) -> TransactionValidity {
+			let valid_tx = |provide| ValidTransaction::with_tag_prefix("ocw-edge")
+				.priority(UNSIGNED_TXS_PRIORITY)
+				.and_provides([&provide])
+				.longevity(3)
+				.propagate(true)
+				.build();
+
+			match call {
+				Call::submit_response_unsigned { response: _response } => valid_tx(b"submit_response_unsigned".to_vec()),
+				Call::submit_response_unsigned_with_signed_payload {
+					ref payload,
+					ref signature
+				} => {
+					if !SignedPayload::<T>::verify::<T::AuthorityId>(payload, signature.clone()) {
+						return InvalidTransaction::BadProof.into();
+					}
+					valid_tx(b"submit_response_unsigned_with_signed_payload".to_vec())
+				},
+				_ => InvalidTransaction::Call.into(),
 			}
 		}
 	}
@@ -262,23 +327,27 @@ pub mod pallet {
 		/// pays a fee to execute it.
 		/// This makes sure that it's not easy (or rather cheap) to attack the chain by submitting
 		/// excessive transactions.
-		pub fn submit_response(origin: OriginFor<T>, response: String) -> DispatchResult {
+		pub fn submit_response_signed(origin: OriginFor<T>, response: String) -> DispatchResult {
 			// Retrieve the signer and check it is valid.
 			let who = ensure_signed(origin)?;
 
 			// Check that the connection exists.
 			ensure!(<Connection<T>>::exists(), Error::<T>::ConnectionDoesNotExist);
 
+			log::info!("submit_response_signed: ({}, {:?})", response, who);
+
 			// Submit response received from CyberHub
 			Self::add_response(Some(who), response);
 
+			Self::deposit_event(Event::NewResponse { response, Some(who) });
+
 			// Return a successful DispatchResult
-			Ok(().into())
+			Ok(())
 		}
 
 		/// Submit new response to the list via unsigned transaction.
 		///
-		/// Works exactly like the `submit_response` function, but since we allow sending the
+		/// Works exactly like the `submit_response_signed` function, but since we allow sending the
 		/// transaction without a signature, and hence without paying any fees,
 		/// we need a way to make sure that only some transactions are accepted.
 		/// This function can be called only once every `T::UnsignedInterval` blocks.
@@ -298,15 +367,19 @@ pub mod pallet {
 			origin: OriginFor<T>,
 			_block_number: T::BlockNumber,
 			response: String,
-		) -> DispatchResultWithPostInfo {
+		) -> DispatchResult {
 			// This ensures that the function can only be called via unsigned transaction.
 			ensure_none(origin)?;
+			log::info!("submit_response_unsigned: {}", response);
 			// Add the response to the on-chain list, but mark it as coming from an empty address.
 			Self::add_response(None, response);
 			// now increment the block number at which we expect next unsigned transaction.
 			let current_block = <system::Pallet<T>>::block_number();
 			<NextUnsignedAt<T>>::put(current_block + T::UnsignedInterval::get());
-			Ok(().into())
+
+			Self::deposit_event(Event::NewResponse { None, response });
+			
+			Ok(())
 		}
 
 		#[pallet::call_index(4)]
@@ -314,16 +387,20 @@ pub mod pallet {
 		pub fn submit_response_unsigned_with_signed_payload(
 			origin: OriginFor<T>,
 			response_payload: ResponsePayload<T::Public, T::BlockNumber>,
-			_signature: T::Signature,
-		) -> DispatchResultWithPostInfo {
+			signature: T::Signature,
+		) -> DispatchResult {
 			// This ensures that the function can only be called via unsigned transaction.
 			ensure_none(origin)?;
 			// Add the response to the on-chain list, but mark it as coming from an empty address.
 			Self::add_response(None, response_payload.response);
 			// now increment the block number at which we expect next unsigned transaction.
+			log::info!("submit_response_unsigned_with_signed_payload: ({}, {:?})", response, public);
 			let current_block = <system::Pallet<T>>::block_number();
 			<NextUnsignedAt<T>>::put(current_block + T::UnsignedInterval::get());
-			Ok(().into())
+			
+			Self::deposit_event(Event::NewResponse { None, response });
+
+			Ok(())
 		}
 
 		// 3. remove_connection
@@ -397,42 +474,13 @@ pub mod pallet {
 		/// Return error if the command is not valid.
 		InvalidCommand,
 
+		/// Returned if ocw function executed is not supported.
+		UnknownOffchainTx,
+
 		// Error returned when fetching github info
 		HttpFetchingError,
 		DeserializeToObjError,
 		DeserializeToStrError,
-	}
-
-	#[pallet::validate_unsigned]
-	impl<T: Config> ValidateUnsigned for Pallet<T> {
-		type Call = Call<T>;
-
-		/// Validate unsigned call to this module.
-		///
-		/// By default unsigned transactions are disallowed, but implementing the validator
-		/// here we make sure that some particular calls (the ones produced by offchain worker)
-		/// are being whitelisted and marked as valid.
-		fn validate_unsigned(source: TransactionSource, call: &Self::Call) -> TransactionValidity {
-			// Firstly let's check that we call the right function.
-			if let Call::submit_response_unsigned_with_signed_payload {
-				response_payload: ref payload,
-				ref signature,
-			} = call
-			{
-				let signature_valid =
-					SignedPayload::<T>::verify::<T::AuthorityId>(payload, signature.clone());
-				if !signature_valid {
-					return InvalidTransaction::BadProof.into()
-				}
-				Self::validate_transaction_parameters(&payload.block_number, &payload.response)
-			} else if let Call::submit_response_unsigned { block_number, response: new_response } =
-				call
-			{
-				Self::validate_transaction_parameters(block_number, new_response)
-			} else {
-				InvalidTransaction::Call.into()
-			}
-		}
 	}
 }
 
@@ -451,13 +499,13 @@ impl<T: SigningTypes> SignedPayload<T> for ResponsePayload<T::Public, T::BlockNu
 	}
 }
 
-enum TransactionType {
-	Signed,
-	UnsignedForAny,
-	UnsignedForAll,
-	Raw,
-	None,
-}
+// enum TransactionType {
+// 	Signed,
+// 	UnsignedForAny,
+// 	UnsignedForAll,
+// 	Raw,
+// 	None,
+// }
 
 impl<T: Config> Pallet<T> {
 	/// Chooses which transaction type to send.
@@ -466,69 +514,69 @@ impl<T: Config> Pallet<T> {
 	/// and local storage usage.
 	///
 	/// Returns a type of transaction that should be produced in current run.
-	fn choose_transaction_type(block_number: T::BlockNumber) -> TransactionType {
-		/// A friendlier name for the error that is going to be returned in case we are in the grace
-		/// period.
-		const RECENTLY_SENT: () = ();
+	// fn choose_transaction_type(block_number: T::BlockNumber) -> TransactionType {
+	// 	/// A friendlier name for the error that is going to be returned in case we are in the grace
+	// 	/// period.
+	// 	const RECENTLY_SENT: () = ();
 
-		// Start off by creating a reference to Local Storage value.
-		// Since the local storage is common for all offchain workers, it's a good practice
-		// to prepend your entry with the module name.
-		let val = StorageValueRef::persistent(b"example_ocw::last_send");
-		// The Local Storage is persisted and shared between runs of the offchain workers,
-		// and offchain workers may run concurrently. We can use the `mutate` function, to
-		// write a storage entry in an atomic fashion. Under the hood it uses `compare_and_set`
-		// low-level method of local storage API, which means that only one worker
-		// will be able to "acquire a lock" and send a transaction if multiple workers
-		// happen to be executed concurrently.
-		let res = val.mutate(|last_send: Result<Option<T::BlockNumber>, StorageRetrievalError>| {
-			match last_send {
-				// If we already have a value in storage and the block number is recent enough
-				// we avoid sending another transaction at this time.
-				Ok(Some(block)) if block_number < block + T::GracePeriod::get() =>
-					Err(RECENTLY_SENT),
-				// In every other case we attempt to acquire the lock and send a transaction.
-				_ => Ok(block_number),
-			}
-		});
+	// 	// Start off by creating a reference to Local Storage value.
+	// 	// Since the local storage is common for all offchain workers, it's a good practice
+	// 	// to prepend your entry with the module name.
+	// 	let val = StorageValueRef::persistent(b"example_ocw::last_send");
+	// 	// The Local Storage is persisted and shared between runs of the offchain workers,
+	// 	// and offchain workers may run concurrently. We can use the `mutate` function, to
+	// 	// write a storage entry in an atomic fashion. Under the hood it uses `compare_and_set`
+	// 	// low-level method of local storage API, which means that only one worker
+	// 	// will be able to "acquire a lock" and send a transaction if multiple workers
+	// 	// happen to be executed concurrently.
+	// 	let res = val.mutate(|last_send: Result<Option<T::BlockNumber>, StorageRetrievalError>| {
+	// 		match last_send {
+	// 			// If we already have a value in storage and the block number is recent enough
+	// 			// we avoid sending another transaction at this time.
+	// 			Ok(Some(block)) if block_number < block + T::GracePeriod::get() =>
+	// 				Err(RECENTLY_SENT),
+	// 			// In every other case we attempt to acquire the lock and send a transaction.
+	// 			_ => Ok(block_number),
+	// 		}
+	// 	});
 
-		// The result of `mutate` call will give us a nested `Result` type.
-		// The first one matches the return of the closure passed to `mutate`, i.e.
-		// if we return `Err` from the closure, we get an `Err` here.
-		// In case we return `Ok`, here we will have another (inner) `Result` that indicates
-		// if the value has been set to the storage correctly - i.e. if it wasn't
-		// written to in the meantime.
-		match res {
-			// The value has been set correctly, which means we can safely send a transaction now.
-			Ok(block_number) => {
-				// We will send different transactions based on a random number.
-				// Note that this logic doesn't really guarantee that the transactions will be sent
-				// in an alternating fashion (i.e. fairly distributed). Depending on the execution
-				// order and lock acquisition, we may end up for instance sending two `Signed`
-				// transactions in a row. If a strict order is desired, it's better to use
-				// the storage entry for that. (for instance store both block number and a flag
-				// indicating the type of next transaction to send).
-				let transaction_type = block_number % 4u32.into();
-				if transaction_type == Zero::zero() {
-					TransactionType::Signed
-				} else if transaction_type == T::BlockNumber::from(1u32) {
-					TransactionType::UnsignedForAny
-				} else if transaction_type == T::BlockNumber::from(2u32) {
-					TransactionType::UnsignedForAll
-				} else {
-					TransactionType::Raw
-				}
-			},
-			// We are in the grace period, we should not send a transaction this time.
-			Err(MutateStorageError::ValueFunctionFailed(RECENTLY_SENT)) => TransactionType::None,
-			// We wanted to send a transaction, but failed to write the block number (acquire a
-			// lock). This indicates that another offchain worker that was running concurrently
-			// most likely executed the same logic and succeeded at writing to storage.
-			// Thus we don't really want to send the transaction, knowing that the other run
-			// already did.
-			Err(MutateStorageError::ConcurrentModification(_)) => TransactionType::None,
-		}
-	}
+	// 	// The result of `mutate` call will give us a nested `Result` type.
+	// 	// The first one matches the return of the closure passed to `mutate`, i.e.
+	// 	// if we return `Err` from the closure, we get an `Err` here.
+	// 	// In case we return `Ok`, here we will have another (inner) `Result` that indicates
+	// 	// if the value has been set to the storage correctly - i.e. if it wasn't
+	// 	// written to in the meantime.
+	// 	match res {
+	// 		// The value has been set correctly, which means we can safely send a transaction now.
+	// 		Ok(block_number) => {
+	// 			// We will send different transactions based on a random number.
+	// 			// Note that this logic doesn't really guarantee that the transactions will be sent
+	// 			// in an alternating fashion (i.e. fairly distributed). Depending on the execution
+	// 			// order and lock acquisition, we may end up for instance sending two `Signed`
+	// 			// transactions in a row. If a strict order is desired, it's better to use
+	// 			// the storage entry for that. (for instance store both block number and a flag
+	// 			// indicating the type of next transaction to send).
+	// 			let transaction_type = block_number % 4u32.into();
+	// 			if transaction_type == Zero::zero() {
+	// 				TransactionType::Signed
+	// 			} else if transaction_type == T::BlockNumber::from(1u32) {
+	// 				TransactionType::UnsignedForAny
+	// 			} else if transaction_type == T::BlockNumber::from(2u32) {
+	// 				TransactionType::UnsignedForAll
+	// 			} else {
+	// 				TransactionType::Raw
+	// 			}
+	// 		},
+	// 		// We are in the grace period, we should not send a transaction this time.
+	// 		Err(MutateStorageError::ValueFunctionFailed(RECENTLY_SENT)) => TransactionType::None,
+	// 		// We wanted to send a transaction, but failed to write the block number (acquire a
+	// 		// lock). This indicates that another offchain worker that was running concurrently
+	// 		// most likely executed the same logic and succeeded at writing to storage.
+	// 		// Thus we don't really want to send the transaction, knowing that the other run
+	// 		// already did.
+	// 		Err(MutateStorageError::ConcurrentModification(_)) => TransactionType::None,
+	// 	}
+	// }
 
 	/// A helper function to fetch the response and send signed transaction.
 	fn fetch_response_and_send_signed() -> Result<(), &'static str> {
@@ -552,7 +600,7 @@ impl<T: Config> Pallet<T> {
 		let results = signer.send_signed_transaction(|_account| {
 			// Clone the response_clone before moving it into the closure
 			let response_in_closure = response_clone.clone();
-			Call::submit_response { response: response_in_closure }
+			Call::submit_response_signed { response: response_in_closure }
 		});		
 
 		for (acc, res) in &results {
@@ -725,71 +773,7 @@ impl<T: Config> Pallet<T> {
 	///
 	/// Returns `None` when parsing failed or `Some(response)` when parsing is successful.
 	fn parse_response(response_str: &str) -> Option<ResponseData> {
-		let parsed_json = serde_json::parse_json(response_str);
-	
-		match parsed_json.ok()? {
-			JsonValue::Object(obj) => {
-				let response_data = ResponseData {
-					response_type: obj.get("type").and_then(|v| match v {
-						JsonValue::String(s) => Some(s.into_bytes()),
-						_ => None,
-					})?,
-					id: obj.get("id").and_then(|v| match v {
-						JsonValue::String(s) => Some(s.into_bytes()),
-						_ => None,
-					})?,
-					response_ref: obj.get("ref").and_then(|v| match v {
-						JsonValue::String(s) => Some(s.into_bytes()),
-						_ => None,
-					})?,
-					timestamp: obj.get("timestamp").and_then(|v| match v {
-						JsonValue::Number(n) => Some(*n),
-						_ => None,
-					})?,
-					status_code: obj.get("status_code").and_then(|v| match v {
-						JsonValue::Number(n) => Some(*n as u16),
-						_ => None,
-					})?,
-					node_id: obj.get("node_id").and_then(|v| match v {
-						JsonValue::String(s) => Some(s.into_bytes()),
-						_ => None,
-					})?,
-					args: obj.get("args").and_then(|v| match v {
-						JsonValue::Array(arr) => Some(
-							arr.iter()
-								.filter_map(|x| match x {
-									JsonValue::String(s) => Some(s.into_bytes()),
-									_ => None,
-								})
-								.collect(),
-						),
-						_ => None,
-					})?,
-					data: obj.get("data").and_then(|v| match v {
-						JsonValue::Array(arr) => Some(
-							arr.iter()
-								.filter_map(|x| match x {
-									JsonValue::Array(inner_arr) => Some(
-										inner_arr
-											.iter()
-											.filter_map(|y| match y {
-												JsonValue::String(s) => Some(s.into_bytes()),
-												_ => None,
-											})
-											.collect(),
-									),
-									_ => None,
-								})
-								.collect(),
-						),
-						_ => None,
-					})?,
-				};
-	
-				Some(response_data)
-			}
-			_ => None,
-		}
+		todo!("Parse the response from the given JSON string using `serde-json`.")
 	}
 	
 
