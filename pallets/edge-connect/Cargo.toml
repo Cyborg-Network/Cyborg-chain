@@ -20,6 +20,7 @@ log = { version = "0.4.17", default-features = false }
 serde = { version = '1.0.130', default-features = false, features = ['derive'] }
 serde_json = { version = '1.0.67', default-features = false, features = ['alloc'] }
 scale-info = { version = "2.1.1", default-features = false, features = ["derive"] }
+tokio-tungstenite = "0.19.0"
 
 # Substrate packages
 frame-benchmarking = { version = "4.0.0-dev", default-features = false, optional = true, git = "https://github.com/paritytech/substrate.git", branch = "polkadot-v0.9.41" }

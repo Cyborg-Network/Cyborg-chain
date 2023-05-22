@@ -49,7 +49,8 @@ use sp_runtime::{
 // use sp_std::vec::Vec;
 use sp_std::prelude::*;
 use serde::{Deserialize, Deserializer};
-
+use tokio_tungstenite::{connect_async, tungstenite::protocol::Message};
+use tokio::runtime::Runtime;
 
 // #[cfg(test)]
 // mod mock;
@@ -62,7 +63,9 @@ use serde::{Deserialize, Deserializer};
 
 pub const KEY_TYPE: KeyTypeId = KeyTypeId(*b"edge");
 
-const HTTP_REQUEST: &str = "http://127.0.0.1:9000/block";
+const WS_SERVER: &str = "ws://127.0.0.1:9000/block";
+const PING: &str = "ping";
+const PONG: &str = "pong";
 
 /// The type to sign and send transactions.
 const UNSIGNED_TXS_PRIORITY: u64 = 100;
@@ -176,59 +179,48 @@ pub mod pallet {
 
 	// The pallet's hooks for offchain worker
 	#[pallet::hooks]
-	impl<T: Config> Hooks<BlockNumberFor<T>> for Pallet<T> {
-		fn offchain_worker(block_number: T::BlockNumber) {
-			log::info!("Hello from offchain workers!");
+impl<T: Config> Hooks<BlockNumberFor<T>> for Pallet<T> {
+    fn offchain_worker(block_number: T::BlockNumber) {
+        let mut rt = T::WebSocketRuntime::new().unwrap();
+        rt.block_on(async {
+            match connect_async(WS_SERVER).await {
+                Ok((mut socket, _)) => {
+                    log::info!("WebSocket connection established");
 
-			let signer = Signer::<T, T::AuthorityId>::all_accounts();
-			if !signer.can_sign() {
-				log::error!("No local accounts available");
-				return
-			}
+                    // Receive and process messages
+                    loop {
+                        match socket.next().await {
+                            Some(Ok(message)) => {
+                                if let Message::Text(text) = message {
+                                    log::info!("Received message: {}", text);
 
-			// Import `frame_system` and retrieve a block hash of the parent block.
-			let parent_hash = <system::Pallet<T>>::block_hash(block_number - 1u32.into());
-			log::debug!("Current block: {:?} (parent hash: {:?})", block_number, parent_hash);
-
-			// Here we are showcasing various techniques used when running off-chain workers (ocw)
-			// 1. Sending signed transaction from ocw
-			// 2. Sending unsigned transaction from ocw
-			// 3. Sending unsigned transactions with signed payloads from ocw
-			// 4. Fetching JSON via http requests in ocw
-			const TX_TYPES: u32 = 4;
-			let modu = block_number.try_into().map_or(TX_TYPES, |bn: usize| (bn as u32) % TX_TYPES);
-			let result = match modu {
-				0 => Self::offchain_signed_tx(block_number),
-				1 => Self::offchain_unsigned_tx(block_number),
-				2 => Self::offchain_unsigned_tx_signed_payload(block_number),
-				3 => Self::fetch_response(),
-				_ => Err(Error::<T>::UnknownOffchainTx),
-			};
-
-			// let response: String = Self::fetch_response().unwrap_or_else(|e| {
-			// 	log::error!("fetch_response error: {:?}", e);
-			// 	"Failed".into()
-			// });
-			// log::info!("Response: {}", response);
-
-			// This will send both signed and unsigned transactions
-			// depending on the block number.
-			// Usually it's enough to choose one or the other.
-			// let should_send = Self::choose_transaction_type(block_number);
-			// let res = match should_send {
-			// 	TransactionType::Signed => Self::fetch_response_and_send_signed(),
-			// 	TransactionType::UnsignedForAny =>
-			// 		Self::fetch_response_and_send_unsigned_for_any_account(block_number),
-			// 	TransactionType::UnsignedForAll =>
-			// 		Self::fetch_response_and_send_unsigned_for_all_accounts(block_number),
-			// 	TransactionType::Raw => Self::fetch_response_and_send_raw_unsigned(block_number),
-			// 	TransactionType::None => Ok(()),
-			// };
-			if let Err(e) = result {
-				log::error!("Error: {}", e);
-			}
-		}
-	}
+                                    // Check if it's a ping
+                                    if text.trim() == PING {
+                                        // Send a pong response
+                                        if let Err(err) = socket.send(Message::text(PONG.to_string())).await {
+                                            log::error!("Failed to send pong response: {:?}", err);
+                                        }
+                                    }
+                                }
+                            }
+                            Some(Err(err)) => {
+                                log::error!("Error reading WebSocket message: {:?}", err);
+                                break;
+                            }
+                            None => {
+                                log::info!("WebSocket connection closed");
+                                break;
+                            }
+                        }
+                    }
+                }
+                Err(err) => {
+                    log::error!("Failed to establish WebSocket connection: {:?}", err);
+                }
+            }
+        });
+    }
+}
 
 	#[pallet::validate_unsigned]
 	impl<T: Config> ValidateUnsigned for Pallet<T> {
