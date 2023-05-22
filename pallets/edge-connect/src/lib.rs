@@ -25,111 +25,122 @@
 
 #![cfg_attr(not(feature = "std"), no_std)]
 
-use codec::{Decode, Encode};
-use frame_support::{traits::Get, ensure};
-use frame_system::{
-	self as system,
-	offchain::{
-		AppCrypto, CreateSignedTransaction, SendSignedTransaction, SendUnsignedTransaction,
-		SignedPayload, Signer, SigningTypes, SubmitTransaction,
-	},
-};
-use scale_info::prelude::string::String;
-use sp_core::crypto::KeyTypeId;
-use sp_runtime::{
-	offchain::{
-		http::{self},
-		storage::{MutateStorageError, StorageRetrievalError, StorageValueRef},
-		Duration,
-	},
-	traits::Zero,
-	transaction_validity::{InvalidTransaction, TransactionValidity, ValidTransaction},
-	RuntimeDebug, BoundedVec,
-};
-// use sp_std::vec::Vec;
-use sp_std::prelude::*;
-use serde::{Deserialize, Deserializer};
+#[frame_support::pallet]
+pub mod pallet {
 
-
-// #[cfg(test)]
-// mod mock;
-
-// #[cfg(test)]
-// mod tests;
-
-// #[cfg(feature = "runtime-benchmarks")]
-// mod benchmarking;
-
-pub const KEY_TYPE: KeyTypeId = KeyTypeId(*b"edge");
-
-const HTTP_REQUEST: &str = "http://127.0.0.1:9000/block";
-
-/// The type to sign and send transactions.
-const UNSIGNED_TXS_PRIORITY: u64 = 100;
-
-pub mod crypto {
-	use super::KEY_TYPE;
-	use sp_core::sr25519::Signature as Sr25519Signature;
-	use sp_std::prelude::*;
-	use sp_runtime::{
-		app_crypto::{app_crypto, sr25519},
-		traits::Verify,
-		MultiSignature, MultiSigner,
+	use codec::{Decode, Encode};
+	use frame_support::{ensure, traits::Get};
+	use frame_system::{
+		self as system,
+		offchain::{
+			AppCrypto, CreateSignedTransaction, SendSignedTransaction, SendUnsignedTransaction,
+			SignedPayload, Signer, SigningTypes, SubmitTransaction,
+		},
 	};
-	app_crypto!(sr25519, KEY_TYPE);
+	use scale_info::prelude::string::String;
+	use sp_core::crypto::KeyTypeId;
+	use sp_runtime::{
+		offchain::{
+			http,
+			storage::{MutateStorageError, StorageRetrievalError, StorageValueRef},
+			storage_lock::{BlockAndTime, StorageLock},
+			Duration,
+		},
+		traits::Zero,
+		transaction_validity::{InvalidTransaction, TransactionValidity, ValidTransaction},
+		BoundedVec, RuntimeDebug,
+	};
+	// use sp_std::vec::Vec;
+	use serde::{Deserialize, Deserializer};
+	use sp_std::prelude::*;
 
-	pub struct TestAuthId;
+	// #[cfg(test)]
+	// mod mock;
 
-	impl frame_system::offchain::AppCrypto<MultiSigner, MultiSignature> for TestAuthId {
-		type RuntimeAppPublic = Public;
-		type GenericSignature = sp_core::sr25519::Signature;
-		type GenericPublic = sp_core::sr25519::Public;
+	// #[cfg(test)]
+	// mod tests;
+
+	// #[cfg(feature = "runtime-benchmarks")]
+	// mod benchmarking;
+
+	pub const KEY_TYPE: KeyTypeId = KeyTypeId(*b"edge");
+
+	const HTTP_REMOTE_REQUEST: &str = "http://127.0.0.1:9000/block";
+
+	const FETCH_TIMEOUT_PERIOD: u64 = 3000; // in milli-seconds
+
+	const LOCK_TIMEOUT_EXPIRATION: u64 = FETCH_TIMEOUT_PERIOD + 1000; // in milli-seconds
+
+	const LOCK_BLOCK_EXPIRATION: u32 = 3; // in block number
+
+	/// The type to sign and send transactions.
+	const UNSIGNED_TXS_PRIORITY: u64 = 100;
+
+	pub mod crypto {
+		use super::*;
+		use sp_core::sr25519::Signature as Sr25519Signature;
+		use sp_runtime::{
+			app_crypto::{app_crypto, sr25519},
+			traits::Verify,
+			MultiSignature, MultiSigner,
+		};
+		use sp_std::prelude::*;
+		app_crypto!(sr25519, KEY_TYPE);
+
+		pub struct TestAuthId;
+
+		impl frame_system::offchain::AppCrypto<MultiSigner, MultiSignature> for TestAuthId {
+			type RuntimeAppPublic = Public;
+			type GenericSignature = sp_core::sr25519::Signature;
+			type GenericPublic = sp_core::sr25519::Public;
+		}
+
+		// implemented for mock runtime in test
+		impl
+			frame_system::offchain::AppCrypto<
+				<Sr25519Signature as Verify>::Signer,
+				Sr25519Signature,
+			> for TestAuthId
+		{
+			type RuntimeAppPublic = Public;
+			type GenericSignature = sp_core::sr25519::Signature;
+			type GenericPublic = sp_core::sr25519::Public;
+		}
 	}
 
-	// implemented for mock runtime in test
-	impl frame_system::offchain::AppCrypto<<Sr25519Signature as Verify>::Signer, Sr25519Signature>
-		for TestAuthId
-	{
-		type RuntimeAppPublic = Public;
-		type GenericSignature = sp_core::sr25519::Signature;
-		type GenericPublic = sp_core::sr25519::Public;
+	#[derive(Deserialize, Encode, Decode, Default, RuntimeDebug, scale_info::TypeInfo)]
+	pub struct ResponseData {
+		// Specify deserializing function to convert JSON string to vector of bytes
+		#[serde(deserialize_with = "de_string_to_bytes")]
+		pub response_type: Vec<u8>,
+		#[serde(deserialize_with = "de_string_to_bytes")]
+		pub id: Vec<u8>,
+		#[serde(deserialize_with = "de_string_to_bytes")]
+		pub response_ref: Vec<u8>,
+		#[serde(deserialize_with = "de_string_to_bytes")]
+		pub timestamp: Vec<u8>,
+		#[serde(deserialize_with = "de_string_to_bytes")]
+		pub status_code: Vec<u8>,
+		#[serde(deserialize_with = "de_string_to_bytes")]
+		pub node_id: Vec<u8>,
+		pub args: Vec<Vec<u8>>,
+		pub data: Vec<Vec<u8>>,
 	}
-}
 
-#[derive(Deserialize, Encode, Decode, Default, RuntimeDebug, scale_info::TypeInfo)]
-pub struct ResponseData {
-	// Specify deserializing function to convert JSON string to vector of bytes
-	#[serde(deserialize_with = "de_string_to_bytes")]
-	pub response_type: Vec<u8>,
-	#[serde(deserialize_with = "de_string_to_bytes")]
-	pub id: Vec<u8>,
-	#[serde(deserialize_with = "de_string_to_bytes")]
-	pub response_ref: Vec<u8>,
-	#[serde(deserialize_with = "de_string_to_bytes")]
-	pub timestamp: Vec<u8>,
-	#[serde(deserialize_with = "de_string_to_bytes")]
-	pub status_code: Vec<u8>,
-	#[serde(deserialize_with = "de_string_to_bytes")]
-	pub node_id: Vec<u8>,
-	pub args: Vec<Vec<u8>>,
-	pub data: Vec<Vec<u8>>,
-}
-
-pub fn de_string_to_bytes<'de, D>(de: D) -> Result<Vec<u8>, D::Error>
+	pub fn de_string_to_bytes<'de, D>(de: D) -> Result<Vec<u8>, D::Error>
 	where
-	D: Deserializer<'de>,
+		D: Deserializer<'de>,
 	{
 		let s: &str = Deserialize::deserialize(de)?;
 		Ok(s.as_bytes().to_vec())
 	}
 
-#[frame_support::pallet]
-pub mod pallet {
 	use super::*;
 	use frame_support::pallet_prelude::*;
 	use frame_system::pallet_prelude::*;
 
 	#[pallet::pallet]
+	#[pallet::generate_store(pub(super) trait Store)]
 	pub struct Pallet<T>(_);
 
 	/// Configure the pallet by specifying the parameters and types on which it depends.
@@ -174,6 +185,79 @@ pub mod pallet {
 		type MaxStringLength: Get<u32>;
 	}
 
+	// The pallet's runtime storage items.
+	#[pallet::storage]
+	#[pallet::getter(fn connection)]
+	pub type Connection<T> = StorageValue<_, u32>; // TODO: change to the proper data structure
+
+	/// A vector of recently submitted responses.
+	#[pallet::storage]
+	#[pallet::getter(fn responses)]
+	pub(super) type Responses<T: Config> = StorageValue<
+		_,
+		BoundedVec<(Option<T::AccountId>, BoundedVec<u8, T::MaxStringLength>), T::MaxResponses>,
+		ValueQuery,
+	>;
+
+	/// Defines the block when next unsigned transaction will be accepted.
+	///
+	/// To prevent spam of unsigned (and unpayed!) transactions on the network,
+	/// we only allow one transaction every `T::UnsignedInterval` blocks.
+	/// This storage entry defines when new transaction is going to be accepted.
+	#[pallet::storage]
+	#[pallet::getter(fn next_unsigned_at)]
+	pub(super) type NextUnsignedAt<T: Config> = StorageValue<_, T::BlockNumber, ValueQuery>;
+
+	// Pallets use events to inform users when important changes are made.
+	#[pallet::event]
+	#[pallet::generate_deposit(pub(super) fn deposit_event)]
+	pub enum Event<T: Config> {
+		/// Event documentation should end with an array that provides descriptive names for event
+		/// parameters. [connection, who]
+		ConnectionCreated { connection: u32, who: T::AccountId },
+		/// Event documentation should end with an array that provides descriptive names for event
+		/// parameters. [connection, who]
+		ConnectionRemoved { connection: u32, who: T::AccountId },
+		/// Event generated when a new command is sent to CyberHub.
+		/// [command, who]
+		CommandSent { command: String, who: T::AccountId },
+		/// Event generated when a response is received from CyberHub.
+		/// [response, maybe_who]
+		NewResponse { maybe_who: Option<T::AccountId>, response: String },
+	}
+
+	// Errors inform users that something went wrong.
+	#[pallet::error]
+	pub enum Error<T> {
+		/// Returned if the connection already exists.
+		ConnectionAlreadyExists,
+		/// Returned if the connection does not exist.
+		ConnectionDoesNotExist,
+		/// Returned if the response is too large.
+		ResponseTooLarge,
+		/// Return error if the command is not valid.
+		InvalidCommand,
+
+		/// Returned if ocw function executed is not supported.
+		UnknownOffchainTx,
+
+		// Error returned when making signed transactions in off-chain worker
+		NoLocalAcctForSigning,
+		OffchainSignedTxError,
+
+		// Error returned when making unsigned transactions in off-chain worker
+		OffchainUnsignedTxError,
+
+		// Error returned when making unsigned transactions with signed payloads in off-chain
+		// worker
+		OffchainUnsignedTxSignedPayloadError,
+
+		// Error returned when fetching github info
+		HttpFetchingError,
+		DeserializeToObjError,
+		DeserializeToStrError,
+	}
+
 	// The pallet's hooks for offchain worker
 	#[pallet::hooks]
 	impl<T: Config> Hooks<BlockNumberFor<T>> for Pallet<T> {
@@ -201,29 +285,10 @@ pub mod pallet {
 				0 => Self::offchain_signed_tx(block_number),
 				1 => Self::offchain_unsigned_tx(block_number),
 				2 => Self::offchain_unsigned_tx_signed_payload(block_number),
-				3 => Self::fetch_response(),
+				3 => Self::fetch_remote_response(),
 				_ => Err(Error::<T>::UnknownOffchainTx),
 			};
 
-			// let response: String = Self::fetch_response().unwrap_or_else(|e| {
-			// 	log::error!("fetch_response error: {:?}", e);
-			// 	"Failed".into()
-			// });
-			// log::info!("Response: {}", response);
-
-			// This will send both signed and unsigned transactions
-			// depending on the block number.
-			// Usually it's enough to choose one or the other.
-			// let should_send = Self::choose_transaction_type(block_number);
-			// let res = match should_send {
-			// 	TransactionType::Signed => Self::fetch_response_and_send_signed(),
-			// 	TransactionType::UnsignedForAny =>
-			// 		Self::fetch_response_and_send_unsigned_for_any_account(block_number),
-			// 	TransactionType::UnsignedForAll =>
-			// 		Self::fetch_response_and_send_unsigned_for_all_accounts(block_number),
-			// 	TransactionType::Raw => Self::fetch_response_and_send_raw_unsigned(block_number),
-			// 	TransactionType::None => Ok(()),
-			// };
 			if let Err(e) = result {
 				log::error!("Error: {}", e);
 			}
@@ -240,21 +305,24 @@ pub mod pallet {
 		/// here we make sure that some particular calls (the ones produced by offchain worker)
 		/// are being whitelisted and marked as valid.
 		fn validate_unsigned(source: TransactionSource, call: &Self::Call) -> TransactionValidity {
-			let valid_tx = |provide| ValidTransaction::with_tag_prefix("ocw-edge")
-				.priority(UNSIGNED_TXS_PRIORITY)
-				.and_provides([&provide])
-				.longevity(3)
-				.propagate(true)
-				.build();
+			let valid_tx = |provide| {
+				ValidTransaction::with_tag_prefix("ocw-edge")
+					.priority(UNSIGNED_TXS_PRIORITY)
+					.and_provides([&provide])
+					.longevity(3)
+					.propagate(true)
+					.build()
+			};
 
 			match call {
-				Call::submit_response_unsigned { response: _response } => valid_tx(b"submit_response_unsigned".to_vec()),
+				Call::submit_response_unsigned { response: _response } =>
+					valid_tx(b"submit_response_unsigned".to_vec()),
 				Call::submit_response_unsigned_with_signed_payload {
 					ref payload,
-					ref signature
+					ref signature,
 				} => {
 					if !SignedPayload::<T>::verify::<T::AuthorityId>(payload, signature.clone()) {
-						return InvalidTransaction::BadProof.into();
+						return InvalidTransaction::BadProof.into()
 					}
 					valid_tx(b"submit_response_unsigned_with_signed_payload".to_vec())
 				},
@@ -304,8 +372,9 @@ pub mod pallet {
 			// Send a `ping` command to CyberHub
 			let _request = Self::send_ping();
 
-			// TODO [DISCUSSION]: At this point, it would typically pass the request to an offchain worker to send it.
-    		// In the current form, the `send_ping` function only builds the request, it does not send it.
+			// TODO [DISCUSSION]: At this point, it would typically pass the request to an offchain
+			// worker to send it. In the current form, the `send_ping` function only builds the
+			// request, it does not send it.
 
 			// Emit an event.
 			Self::deposit_event(Event::CommandSent { command, who });
@@ -337,9 +406,9 @@ pub mod pallet {
 			log::info!("submit_response_signed: ({}, {:?})", response, who);
 
 			// Submit response received from CyberHub
-			Self::add_response(Some(who), response);
+			Self::add_response(response);
 
-			Self::deposit_event(Event::NewResponse { response, Some(who) });
+			// Self::deposit_event(Event::NewResponse { Some(who), response });
 
 			// Return a successful DispatchResult
 			Ok(())
@@ -372,13 +441,13 @@ pub mod pallet {
 			ensure_none(origin)?;
 			log::info!("submit_response_unsigned: {}", response);
 			// Add the response to the on-chain list, but mark it as coming from an empty address.
-			Self::add_response(None, response);
+			Self::add_response(response);
 			// now increment the block number at which we expect next unsigned transaction.
 			let current_block = <system::Pallet<T>>::block_number();
 			<NextUnsignedAt<T>>::put(current_block + T::UnsignedInterval::get());
 
 			Self::deposit_event(Event::NewResponse { None, response });
-			
+
 			Ok(())
 		}
 
@@ -391,13 +460,18 @@ pub mod pallet {
 		) -> DispatchResult {
 			// This ensures that the function can only be called via unsigned transaction.
 			ensure_none(origin)?;
-			// Add the response to the on-chain list, but mark it as coming from an empty address.
-			Self::add_response(None, response_payload.response);
 			// now increment the block number at which we expect next unsigned transaction.
-			log::info!("submit_response_unsigned_with_signed_payload: ({}, {:?})", response, public);
+			log::info!(
+				"submit_response_unsigned_with_signed_payload: ({}, {:?})",
+				response,
+				public
+			);
 			let current_block = <system::Pallet<T>>::block_number();
 			<NextUnsignedAt<T>>::put(current_block + T::UnsignedInterval::get());
-			
+
+			// Add the response to the on-chain list, but mark it as coming from an empty address.
+			Self::add_response(None, response_payload.response);
+
 			Self::deposit_event(Event::NewResponse { None, response });
 
 			Ok(())
@@ -424,448 +498,242 @@ pub mod pallet {
 		}
 	}
 
-	// The pallet's runtime storage items.
-	#[pallet::storage]
-	#[pallet::getter(fn connection)]
-	pub type Connection<T> = StorageValue<_, u32>; // TODO: change to the proper data structure
-
-	/// A vector of recently submitted responses.
-	#[pallet::storage]
-	#[pallet::getter(fn responses)]
-	pub(super) type Responses<T: Config> =
-		StorageValue<_, BoundedVec<(Option<T::AccountId>, BoundedVec<u8, T::MaxStringLength>), T::MaxResponses>, ValueQuery>;
-
-	/// Defines the block when next unsigned transaction will be accepted.
-	///
-	/// To prevent spam of unsigned (and unpayed!) transactions on the network,
-	/// we only allow one transaction every `T::UnsignedInterval` blocks.
-	/// This storage entry defines when new transaction is going to be accepted.
-	#[pallet::storage]
-	#[pallet::getter(fn next_unsigned_at)]
-	pub(super) type NextUnsignedAt<T: Config> = StorageValue<_, T::BlockNumber, ValueQuery>;
-
-	// Pallets use events to inform users when important changes are made.
-	#[pallet::event]
-	#[pallet::generate_deposit(pub(super) fn deposit_event)]
-	pub enum Event<T: Config> {
-		/// Event documentation should end with an array that provides descriptive names for event
-		/// parameters. [connection, who]
-		ConnectionCreated { connection: u32, who: T::AccountId },
-		/// Event documentation should end with an array that provides descriptive names for event
-		/// parameters. [connection, who]
-		ConnectionRemoved { connection: u32, who: T::AccountId },
-		/// Event generated when a new command is sent to CyberHub.
-		/// [command, who]
-		CommandSent { command: String, who: T::AccountId },
-		/// Event generated when a response is received from CyberHub.
-		/// [response, maybe_who]
-		NewResponse { response: String, maybe_who: Option<T::AccountId> },
+	/// Payload used by this crate to hold response
+	/// data required to submit a transaction.
+	#[derive(Encode, Decode, Clone, PartialEq, Eq, RuntimeDebug, scale_info::TypeInfo)]
+	pub struct ResponsePayload<Public, BlockNumber> {
+		block_number: BlockNumber,
+		response: String,
+		public: Public,
 	}
 
-	// Errors inform users that something went wrong.
-	#[pallet::error]
-	pub enum Error<T> {
-		/// Returned if the connection already exists.
-		ConnectionAlreadyExists,
-		/// Returned if the connection does not exist.
-		ConnectionDoesNotExist,
-		/// Returned if the response is too large.
-		ResponseTooLarge,
-		/// Return error if the command is not valid.
-		InvalidCommand,
-
-		/// Returned if ocw function executed is not supported.
-		UnknownOffchainTx,
-
-		// Error returned when fetching github info
-		HttpFetchingError,
-		DeserializeToObjError,
-		DeserializeToStrError,
-	}
-}
-
-/// Payload used by this crate to hold response 
-/// data required to submit a transaction.
-#[derive(Encode, Decode, Clone, PartialEq, Eq, RuntimeDebug, scale_info::TypeInfo)]
-pub struct ResponsePayload<Public, BlockNumber> {
-	block_number: BlockNumber,
-	response: String,
-	public: Public,
-}
-
-impl<T: SigningTypes> SignedPayload<T> for ResponsePayload<T::Public, T::BlockNumber> {
-	fn public(&self) -> T::Public {
-		self.public.clone()
-	}
-}
-
-// enum TransactionType {
-// 	Signed,
-// 	UnsignedForAny,
-// 	UnsignedForAll,
-// 	Raw,
-// 	None,
-// }
-
-impl<T: Config> Pallet<T> {
-	/// Chooses which transaction type to send.
-	///
-	/// This function serves mostly to showcase `StorageValue` helper
-	/// and local storage usage.
-	///
-	/// Returns a type of transaction that should be produced in current run.
-	// fn choose_transaction_type(block_number: T::BlockNumber) -> TransactionType {
-	// 	/// A friendlier name for the error that is going to be returned in case we are in the grace
-	// 	/// period.
-	// 	const RECENTLY_SENT: () = ();
-
-	// 	// Start off by creating a reference to Local Storage value.
-	// 	// Since the local storage is common for all offchain workers, it's a good practice
-	// 	// to prepend your entry with the module name.
-	// 	let val = StorageValueRef::persistent(b"example_ocw::last_send");
-	// 	// The Local Storage is persisted and shared between runs of the offchain workers,
-	// 	// and offchain workers may run concurrently. We can use the `mutate` function, to
-	// 	// write a storage entry in an atomic fashion. Under the hood it uses `compare_and_set`
-	// 	// low-level method of local storage API, which means that only one worker
-	// 	// will be able to "acquire a lock" and send a transaction if multiple workers
-	// 	// happen to be executed concurrently.
-	// 	let res = val.mutate(|last_send: Result<Option<T::BlockNumber>, StorageRetrievalError>| {
-	// 		match last_send {
-	// 			// If we already have a value in storage and the block number is recent enough
-	// 			// we avoid sending another transaction at this time.
-	// 			Ok(Some(block)) if block_number < block + T::GracePeriod::get() =>
-	// 				Err(RECENTLY_SENT),
-	// 			// In every other case we attempt to acquire the lock and send a transaction.
-	// 			_ => Ok(block_number),
-	// 		}
-	// 	});
-
-	// 	// The result of `mutate` call will give us a nested `Result` type.
-	// 	// The first one matches the return of the closure passed to `mutate`, i.e.
-	// 	// if we return `Err` from the closure, we get an `Err` here.
-	// 	// In case we return `Ok`, here we will have another (inner) `Result` that indicates
-	// 	// if the value has been set to the storage correctly - i.e. if it wasn't
-	// 	// written to in the meantime.
-	// 	match res {
-	// 		// The value has been set correctly, which means we can safely send a transaction now.
-	// 		Ok(block_number) => {
-	// 			// We will send different transactions based on a random number.
-	// 			// Note that this logic doesn't really guarantee that the transactions will be sent
-	// 			// in an alternating fashion (i.e. fairly distributed). Depending on the execution
-	// 			// order and lock acquisition, we may end up for instance sending two `Signed`
-	// 			// transactions in a row. If a strict order is desired, it's better to use
-	// 			// the storage entry for that. (for instance store both block number and a flag
-	// 			// indicating the type of next transaction to send).
-	// 			let transaction_type = block_number % 4u32.into();
-	// 			if transaction_type == Zero::zero() {
-	// 				TransactionType::Signed
-	// 			} else if transaction_type == T::BlockNumber::from(1u32) {
-	// 				TransactionType::UnsignedForAny
-	// 			} else if transaction_type == T::BlockNumber::from(2u32) {
-	// 				TransactionType::UnsignedForAll
-	// 			} else {
-	// 				TransactionType::Raw
-	// 			}
-	// 		},
-	// 		// We are in the grace period, we should not send a transaction this time.
-	// 		Err(MutateStorageError::ValueFunctionFailed(RECENTLY_SENT)) => TransactionType::None,
-	// 		// We wanted to send a transaction, but failed to write the block number (acquire a
-	// 		// lock). This indicates that another offchain worker that was running concurrently
-	// 		// most likely executed the same logic and succeeded at writing to storage.
-	// 		// Thus we don't really want to send the transaction, knowing that the other run
-	// 		// already did.
-	// 		Err(MutateStorageError::ConcurrentModification(_)) => TransactionType::None,
-	// 	}
-	// }
-
-	/// A helper function to fetch the response and send signed transaction.
-	fn fetch_response_and_send_signed() -> Result<(), &'static str> {
-		let signer = Signer::<T, T::AuthorityId>::all_accounts();
-		if !signer.can_sign() {
-			return Err(
-				"No local accounts available. Consider adding one via `author_insertKey` RPC.",
-			)
+	impl<T: SigningTypes> SignedPayload<T> for ResponsePayload<T::Public, T::BlockNumber> {
+		fn public(&self) -> T::Public {
+			self.public.clone()
 		}
-		// Make an external HTTP request to fetch the current response.
-		// Note this call will block until response is received.
-		let response = Self::fetch_response().map_err(|_| "Failed to fetch response")?;
+	}
 
-		// Clone the response for use in the closure.
-		let response_clone = response.clone();
+	impl<T: Config> Pallet<T> {
+		// Add new response to the list.
+		fn add_response(response: String) {
+			// Get the current list of responses.
+			let mut responses = Responses::<T>::get();
 
-		// Using `send_signed_transaction` associated type we create and submit a transaction
-		// representing the call, we've just created.
-		// Submit signed will return a vector of results for all accounts that were found in the
-		// local keystore with expected `KEY_TYPE`.
-		let results = signer.send_signed_transaction(|_account| {
-			// Clone the response_clone before moving it into the closure
-			let response_in_closure = response_clone.clone();
-			Call::submit_response_signed { response: response_in_closure }
-		});		
-
-		for (acc, res) in &results {
-			match res {
-				Ok(()) => log::info!("[{:?}] Submitted response: {}", acc.id, response),
-				Err(e) => log::error!("[{:?}] Failed to submit transaction: {:?}", acc.id, e),
+			// Attempt to append the new response to the list.
+			match responses.try_push(response.clone()) {
+				// The new response has been added to the list.
+				Ok(_) => {
+					// Write the updated list of responses to storage.
+					Responses::<T>::put(responses);
+				},
+				// The offchain worker is already running, so we don't need to do anything.
+				Err(_) => {
+					log::warn!("Unable to add response. Maximum number of responses reached.");
+				},
 			}
 		}
 
-		Ok(())
-	}
+		// Create a reference to Local Storage value.
+		// Since the local storage is common for all offchain workers, it's a good practice
+		// to prepend our entry with the pallet name.
+		// TODO: change http to websocket
+		fn fetch_remote_response() -> Result<(), Error<T>> {
+			// Create a reference to Local Storage value.
+			// Since the local storage is common for all offchain workers, it's a good practice
+			// to prepend our entry with the pallet name.
+			let s_info = StorageValueRef::persistent(b"offchain-edge::ch-info");
 
-	/// A helper function to fetch the response and send a raw unsigned transaction.
-	fn fetch_response_and_send_raw_unsigned(block_number: T::BlockNumber) -> Result<(), &'static str> {
-		// Make sure we don't fetch the response if unsigned transaction is going to be rejected
-		// anyway.
-		let next_unsigned_at = <NextUnsignedAt<T>>::get();
-		if next_unsigned_at > block_number {
-			return Err("Too early to send unsigned transaction")
-		}
+			// Local storage is persisted and shared between runs of the offchain workers,
+			// offchain workers may run concurrently. We can use the `mutate` function to
+			// write a storage entry in an atomic fashion.
+			//
+			// With a similar API as `StorageValue` with the variables `get`, `set`, `mutate`.
+			// We will likely want to use `mutate` to access
+			// the storage comprehensively.
+			//
+			if let Ok(Some(info)) = s_info.get::<ResponseData>() {
+				// ch-info has already been fetched. Return early.
+				log::info!("cached ch-info: {:?}", info);
+				return Ok(())
+			}
 
-		// Make an external HTTP request to fetch the current response.
-		// Note this call will block until response is received.
-		let response = Self::fetch_response().map_err(|_| "Failed to fetch response")?;
-
-		// Received response is wrapped into a call to `submit_response_unsigned` public function of this
-		// pallet. This means that the transaction, when executed, will simply call that function
-		// passing `response` as an argument.
-		let call = Call::submit_response_unsigned { block_number, response };
-
-		// Now let's create a transaction out of this call and submit it to the pool.
-		// Here we showcase two ways to send an unsigned transaction / unsigned payload (raw)
-		//
-		// By default unsigned transactions are disallowed, so we need to whitelist this case
-		// by writing `UnsignedValidator`. Note that it's EXTREMELY important to carefuly
-		// implement unsigned validation logic, as any mistakes can lead to opening DoS or spam
-		// attack vectors. See validation logic docs for more details.
-		//
-		SubmitTransaction::<T, Call<T>>::submit_unsigned_transaction(call.into())
-			.map_err(|()| "Unable to submit unsigned transaction.")?;
-
-		Ok(())
-	}
-
-	/// A helper function to fetch the response, sign payload and send an unsigned transaction
-	fn fetch_response_and_send_unsigned_for_any_account(
-		block_number: T::BlockNumber,
-	) -> Result<(), &'static str> {
-		// Make sure we don't fetch the response if unsigned transaction is going to be rejected
-		// anyway.
-		let next_unsigned_at = <NextUnsignedAt<T>>::get();
-		if next_unsigned_at > block_number {
-			return Err("Too early to send unsigned transaction")
-		}
-
-		// Make an external HTTP request to fetch the current response.
-		// Note this call will block until response is received.
-		let response = Self::fetch_response().map_err(|_| "Failed to fetch response")?;
-
-		// -- Sign using any account
-		let (_, result) = Signer::<T, T::AuthorityId>::any_account()
-			.send_unsigned_transaction(
-				|account| {
-					let response_in_closure = response.clone();
-					ResponsePayload { response: response_in_closure, block_number, public: account.public.clone() }
-				},
-				|payload, signature| Call::submit_response_unsigned_with_signed_payload {
-					response_payload: payload,
-					signature,
-				},
-			)
-			.ok_or("No local accounts accounts available.")?;
-		result.map_err(|()| "Unable to submit transaction")?;
-
-		Ok(())
-	}
-
-	/// A helper function to fetch the response, sign payload and send an unsigned transaction
-	fn fetch_response_and_send_unsigned_for_all_accounts(
-		block_number: T::BlockNumber,
-	) -> Result<(), &'static str> {
-		// Make sure we don't fetch the response if unsigned transaction is going to be rejected
-		// anyway.
-		let next_unsigned_at = <NextUnsignedAt<T>>::get();
-		if next_unsigned_at > block_number {
-			return Err("Too early to send unsigned transaction")
-		}
-
-		// Make an external HTTP request to fetch the current response.
-		// Note this call will block until response is received.
-		let response = Self::fetch_response().map_err(|_| "Failed to fetch response")?;
-
-		// -- Sign using all accounts
-		let transaction_results = Signer::<T, T::AuthorityId>::all_accounts()
-			.send_unsigned_transaction(
-				|account| {
-					let response_in_closure = response.clone();
-					ResponsePayload { response: response_in_closure, block_number, public: account.public.clone() }
-				},
-				|payload, signature| Call::submit_response_unsigned_with_signed_payload {
-					response_payload: payload,
-					signature,
-				},
+			// Since off-chain storage can be accessed by off-chain workers from multiple runs,
+			// it is important to lock   it before doing heavy computations or write operations.
+			//
+			// There are four ways of defining a lock:
+			//   1) `new` - lock with default time and block exipration
+			//   2) `with_deadline` - lock with default block but custom time expiration
+			//   3) `with_block_deadline` - lock with default time but custom block expiration
+			//   4) `with_block_and_time_deadline` - lock with custom time and block expiration
+			// Here we choose the most custom one for demonstration purpose.
+			let mut lock = StorageLock::<BlockAndTime<Self>>::with_block_and_time_deadline(
+				b"offchain-demo::lock",
+				LOCK_BLOCK_EXPIRATION,
+				Duration::from_millis(LOCK_TIMEOUT_EXPIRATION),
 			);
-		for (_account_id, result) in transaction_results.into_iter() {
-			if result.is_err() {
-				return Err("Unable to submit transaction")
+
+			// We try to acquire the lock here. If failed, we know the `fetch_n_parse` part
+			// inside is being   executed by previous run of ocw, so the function just returns.
+			if let Ok(_guard) = lock.try_lock() {
+				match Self::fetch_n_parse() {
+					Ok(info) => {
+						s_info.set(&info);
+					},
+					Err(err) => return Err(err),
+				}
 			}
+
+			Ok(())
 		}
 
-		Ok(())
-	}
+		/// Fetch from remote and deserialize the JSON to a struct using `serde-json`.
+		fn fetch_n_parse() -> Result<ResponseData, Error<T>> {
+			let resp_bytes = Self::fetch_from_remote().map_err(|e| {
+				log::error!("fetch_from_remote error: {:?}", e);
+				<Error<T>>::HttpFetchingError
+			})?;
 
-	/// Check if we have fetched the response data before. If yes, we can use the cached version
-	/// stored in off-chain worker storage `storage`. If not, we fetch the remote response and
-	/// write the response into the storage for future retrieval.
-	// TODO: change http to websocket
-	fn fetch_response() -> Result<(), Error<T>> {
-		// We want to keep the offchain worker execution time reasonable, so we set a hard-coded
-		// deadline to 3s to complete the external call.
-		// You can also wait idefinitely for the response, however you may still get a timeout
-		// coming from the host machine.
-		let deadline = sp_io::offchain::timestamp().add(Duration::from_millis(3_000));
-		// Initiate an external HTTP GET request.
-		// This is using high-level wrappers from `sp_runtime`, for the low-level calls that
-		// you can find in `sp_io`. The API is trying to be similar to `reqwest`, but
-		// since we are running in a custom WASM execution environment we can't simply
-		// import the library here.
-		let request = http::Request::get(HTTP_REQUEST);
-		// We set the deadline for sending of the request, note that awaiting response can
-		// have a separate deadline. Next we send the request, before that it's also possible
-		// to alter request headers or stream body content in case of non-GET requests.
-		let pending = request.deadline(deadline).send().map_err(|_| http::Error::IoError)?;
+			let resp_str =
+				str::from_utf8(&resp_bytes).map_err(|_| <Error<T>>::DeserializeToStrError)?;
+			// Print out our fetched JSON string
+			log::info!("fetch_n_parse: {}", resp_str);
 
-		// The request is already being processed by the host, we are free to do anything
-		// else in the worker (we can send multiple concurrent requests too).
-		// At some point however we probably want to check the response though,
-		// so we can block current thread and wait for it to finish.
-		// Note that since the request is being driven by the host, we don't have to wait
-		// for the request to have it complete, we will just not read the response.
-		let response = pending.wait().map_err(|_| http::Error::IoError)?;
-
-		if response.code != 200 {
-			log::warn!("Unexpected status code: {}", response.code);
-			return Err(http::Error::Unknown);
+			// Deserializing JSON to struct, thanks to `serde` and `serde_derive`
+			let info: ResponseData =
+				serde_json::from_str(&resp_str).map_err(|_| <Error<T>>::DeserializeToObjError)?;
+			Ok(info)
 		}
 
-		// Next we want to fully read the response body and collect it to a vector of bytes.
-		let body = response.body().collect::<Vec<u8>>();
-		// Create a str slice from the body.
-		let body_str = sp_std::str::from_utf8(&body).map_err(|_| {
-			log::warn!("No UTF8 body");
-			http::Error::Unknown
-		})?;
+		/// This function uses the `offchain::http` API to query the remote endpoint
+		/// information,   and returns the JSON response as vector of bytes.
+		fn fetch_from_remote() -> Result<Vec<u8>, Error<T>> {
+			// Initiate an external HTTP GET request. This is using high-level wrappers from
+			// `sp_runtime`.
+			let request = http::Request::get(HTTP_REMOTE_REQUEST);
 
-		let response = match Self::parse_response(body_str) {
-			Some(response_str) => Ok(response_str),
-			None => {
-				log::warn!("Unable to extract response from the Cyberhub: {:?}", body_str);
-				Err(http::Error::Unknown)
-			},
-		}?;
+			// Keeping the offchain worker execution time reasonable, so limiting the call to be
+			// within 3s.
+			let timeout =
+				sp_io::offchain::timestamp().add(Duration::from_millis(FETCH_TIMEOUT_PERIOD));
 
-		log::warn!("Got response: {:?}", response);
+			let pending = request
+				.deadline(timeout) // Setting the timeout time
+				.send() // Sending the request out by the host
+				.map_err(|e| {
+					log::error!("{:?}", e);
+					<Error<T>>::HttpFetchingError
+				})?;
 
-		Ok(response)
-	}
+			// By default, the http request is async from the runtime perspective. So we are
+			// asking the   runtime to wait here
+			// The returning value here is a `Result` of `Result`, so we are unwrapping it twice
+			// by two `?`   ref: https://docs.substrate.io/rustdocs/latest/sp_runtime/offchain/http/struct.PendingRequest.html#method.try_wait
+			let http_response = pending
+				.try_wait(timeout)
+				.map_err(|e| {
+					log::error!("{:?}", e);
+					<Error<T>>::HttpFetchingError
+				})?
+				.map_err(|e| {
+					log::error!("{:?}", e);
+					<Error<T>>::HttpFetchingError
+				})?;
 
-	/// Parse the response from the given JSON string using `serde-json`.
-	///
-	/// Returns `None` when parsing failed or `Some(response)` when parsing is successful.
-	fn parse_response(response_str: &str) -> Option<ResponseData> {
-		todo!("Parse the response from the given JSON string using `serde-json`.")
-	}
-	
+			if http_response.code != 200 {
+				log::error!("Unexpected http request status code: {}", http_response.code);
+				return Err(<Error<T>>::HttpFetchingError)
+			}
 
-	/// Add new response to the list.
-	fn add_response(maybe_who: Option<T::AccountId>, response: String) {
-		log::info!("Adding response to the list: {}", response);
-
-		// Convert the string to a byte vector.
-		let response_bytes = response.into_bytes();
-
-		// Ensure the length doesn't exceed the maximum length.
-		let bounded_response = match BoundedVec::try_from(response_bytes) {
-			Ok(bounded) => bounded,
-			Err(_) => {
-				log::warn!("Response is too long. It has been ignored.");
-				return;
-			},
-		};
-		
-		// Get the current list of responses.
-		let mut responses = Responses::<T>::get();
-
-		// Attempt to append the new response to the list.
-		match responses.try_push((maybe_who.clone(), bounded_response.clone())) {
-			Ok(_) => {
-				// Update the storage.
-				Responses::<T>::put(responses);
-	
-				// Emit an event that new response has been received.
-				Self::deposit_event(Event::NewResponse { maybe_who, response: String::from_utf8(bounded_response.into()).unwrap() });
-			},
-			Err(_) => {
-				log::warn!("Unable to add response. Maximum number of responses reached.");
-			},
-		}
-		
-	}
-
-	// TODO: fix these unused variables
-	fn validate_transaction_parameters(
-		block_number: &T::BlockNumber,
-		new_response: &String,
-	) -> TransactionValidity {
-		// Now let's check if the transaction has any chance to succeed.
-		let next_unsigned_at = <NextUnsignedAt<T>>::get();
-		if &next_unsigned_at > block_number {
-			return InvalidTransaction::Stale.into()
-		}
-		// Let's make sure to reject transactions from the future.
-		let current_block = <system::Pallet<T>>::block_number();
-		if &current_block < block_number {
-			return InvalidTransaction::Future.into()
+			// Next we fully read the response body and collect it to a vector of bytes.
+			Ok(http_response.body().collect::<Vec<u8>>())
 		}
 
-		let response = Self::fetch_response();
+		fn offchain_signed_tx(block_number: T::BlockNumber) -> Result<(), Error<T>> {
+			// We retrieve a signer and check if it is valid.
+			//   Since this pallet only has one key in the keystore. We use `any_account()1 to
+			//   retrieve it. If there are multiple keys and we want to pinpoint it,
+			// `with_filter()` can be chained,
+			let signer = Signer::<T, T::AuthorityId>::any_account();
 
-		ValidTransaction::with_tag_prefix("ExampleOffchainWorker")
-			// We set base priority to 2**20 and hope it's included before any other
-			// transactions in the pool. Next we tweak the priority depending on how much
-			// it differs from the current average. (the more it differs the more priority it
-			// has).
-			.priority(T::UnsignedPriority::get()) // TODO: change to UnsignedPriority
-			// This transaction does not require anything else to go before into the pool.
-			// In theory we could require `previous_unsigned_at` transaction to go first,
-			// but it's not necessary in our case.
-			//.and_requires()
-			// We set the `provides` tag to be the same as `next_unsigned_at`. This makes
-			// sure only one transaction produced after `next_unsigned_at` will ever
-			// get to the transaction pool and will end up in the block.
-			// We can still have multiple transactions compete for the same "spot",
-			// and the one with higher priority will replace other one in the pool.
-			.and_provides(next_unsigned_at)
-			// The transaction is only valid for next 5 blocks. After that it's
-			// going to be revalidated by the pool.
-			.longevity(5)
-			// It's fine to propagate that transaction to other peers, which means it can be
-			// created even by nodes that don't produce blocks.
-			// Note that sometimes it's better to keep it for yourself (if you are the block
-			// producer), since for instance in some schemes others may copy your solution and
-			// claim a reward.
-			.propagate(true)
-			.build()
+			// Translating the current block number to number and submit it on-chain
+			let number: u64 = block_number.try_into().unwrap_or(0);
+
+			// `result` is in the type of `Option<(Account<T>, Result<(), ()>)>`. It is:
+			//   - `None`: no account is available for sending transaction
+			//   - `Some((account, Ok(())))`: transaction is successfully sent
+			//   - `Some((account, Err(())))`: error occured when sending the transaction
+			let result = signer.send_signed_transaction(|_acct|
+			// This is the on-chain function
+			Call::submit_response_signed { response });
+
+			// Display error if the signed tx fails.
+			if let Some((acc, res)) = result {
+				if res.is_err() {
+					log::error!("failure: offchain_signed_tx: tx sent: {:?}", acc.id);
+					return Err(<Error<T>>::OffchainSignedTxError)
+				}
+				// Transaction is sent successfully
+				return Ok(())
+			}
+
+			// The case of `None`: no account is available for sending
+			log::error!("No local account available");
+			Err(<Error<T>>::NoLocalAcctForSigning)
+		}
+
+		fn offchain_unsigned_tx(block_number: T::BlockNumber) -> Result<(), Error<T>> {
+			let number: u64 = block_number.try_into().unwrap_or(0);
+			let call = Call::submit_response_unsigned { response };
+
+			// `submit_unsigned_transaction` returns a type of `Result<(), ()>`
+			//   ref: https://substrate.dev/rustdocs/v2.0.0/frame_system/offchain/struct.SubmitTransaction.html#method.submit_unsigned_transaction
+			SubmitTransaction::<T, Call<T>>::submit_unsigned_transaction(call.into()).map_err(
+				|_| {
+					log::error!("Failed in offchain_unsigned_tx");
+					<Error<T>>::OffchainUnsignedTxError
+				},
+			)
+		}
+
+		fn offchain_unsigned_tx_signed_payload(
+			block_number: T::BlockNumber,
+		) -> Result<(), Error<T>> {
+			// Retrieve the signer to sign the payload
+			let signer = Signer::<T, T::AuthorityId>::any_account();
+
+			let number: u64 = block_number.try_into().unwrap_or(0);
+
+			// `send_unsigned_transaction` is returning a type of `Option<(Account<T>,
+			// Result<(), ()>)>`.   Similar to `send_signed_transaction`, they account for:
+			//   - `None`: no account is available for sending transaction
+			//   - `Some((account, Ok(())))`: transaction is successfully sent
+			//   - `Some((account, Err(())))`: error occured when sending the transaction
+			if let Some((_, res)) = signer.send_unsigned_transaction(
+				|acct| ResponsePayload { number, public: acct.public.clone() },
+				|payload, signature| Call::submit_response_unsigned_with_signed_payload {
+					payload,
+					signature,
+				},
+			) {
+				return res.map_err(|_| {
+					log::error!("Failed in offchain_unsigned_tx_signed_payload");
+					<Error<T>>::OffchainUnsignedTxSignedPayloadError
+				})
+			}
+
+			// The case of `None`: no account is available for sending
+			log::error!("No local account available");
+			Err(<Error<T>>::NoLocalAcctForSigning)
+		}
 	}
 
-	fn send_ping() -> http::Request<'static, &'static str> {
-		// Send the `ping` command to CyberHub
-		let post_request = http::Request::post(
-			"http://127.0.0.1:9000/ws",
-			r#"{"command": "ping"}"#,
-		);
-	
-		post_request
-	}
-		
+	// fn send_ping() -> http::Request<'static, &'static str> {
+	// 	// Send the `ping` command to CyberHub
+	// 	let post_request = http::Request::post(
+	// 		"http://127.0.0.1:9000/ws",
+	// 		r#"{"command": "ping"}"#,
+	// 	);
+
+	// 	post_request
+	// }
 }

@@ -18,8 +18,8 @@ use sp_runtime::{
 	generic::Era,
 	impl_opaque_keys,
 	traits::{
-		AccountIdLookup, BlakeTwo256, Block as BlockT, Extrinsic, IdentifyAccount, NumberFor, One, Verify,
-		Zero,
+		AccountIdLookup, BlakeTwo256, Block as BlockT, Extrinsic, IdentifyAccount, NumberFor, One,
+		Verify, Zero,
 	},
 	transaction_validity::{TransactionSource, TransactionValidity},
 	ApplyExtrinsicResult, MultiSignature, SaturatedConversion,
