@@ -315,13 +315,13 @@ pub mod pallet {
 			};
 
 			match call {
-				Call::submit_response_unsigned { response: _response } =>
+				Call::submit_response_unsigned { response, block_number } =>
 					valid_tx(b"submit_response_unsigned".to_vec()),
 				Call::submit_response_unsigned_with_signed_payload {
-					ref payload,
+					ref response_payload,
 					ref signature,
 				} => {
-					if !SignedPayload::<T>::verify::<T::AuthorityId>(payload, signature.clone()) {
+					if !SignedPayload::<T>::verify::<T::AuthorityId>(response_payload, signature.clone()) {
 						return InvalidTransaction::BadProof.into()
 					}
 					valid_tx(b"submit_response_unsigned_with_signed_payload".to_vec())
@@ -709,9 +709,9 @@ pub mod pallet {
 			//   - `Some((account, Ok(())))`: transaction is successfully sent
 			//   - `Some((account, Err(())))`: error occured when sending the transaction
 			if let Some((_, res)) = signer.send_unsigned_transaction(
-				|acct| ResponsePayload { number, public: acct.public.clone() },
+				|acct| ResponsePayload { response_payload, public: acct.public.clone() },
 				|payload, signature| Call::submit_response_unsigned_with_signed_payload {
-					payload,
+					response_payload,
 					signature,
 				},
 			) {
