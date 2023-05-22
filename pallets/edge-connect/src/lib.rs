@@ -35,7 +35,7 @@ use frame_system::{
 	},
 };
 use scale_info::prelude::string::String;
-use lite_json::json::JsonValue;
+use serde_json::json::JsonValue;
 use sp_core::crypto::KeyTypeId;
 use sp_runtime::{
 	offchain::{
@@ -49,6 +49,7 @@ use sp_runtime::{
 };
 // use sp_std::vec::Vec;
 use sp_std::prelude::*;
+use serde::{Deserialize, Deserializer};
 
 // #[cfg(test)]
 // mod mock;
@@ -60,6 +61,8 @@ use sp_std::prelude::*;
 // mod benchmarking;
 
 pub const KEY_TYPE: KeyTypeId = KeyTypeId(*b"edge");
+
+const HTTP_REQUEST: &str = "http://127.0.0.1:9000/block";
 
 pub mod crypto {
 	use super::KEY_TYPE;
@@ -89,7 +92,7 @@ pub mod crypto {
 	}
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Encode, Decode)]
+#[derive(Deserialize, Encode, Decode, Default, RuntimeDebug, scale_info::TypeInfo)]
 pub struct ResponseData {
 	pub response_type: Vec<u8>,
 	pub id: Vec<u8>,
@@ -247,7 +250,7 @@ pub mod pallet {
 		}
 
 		#[pallet::call_index(2)]
-		#[pallet::weight({0})]
+		#[pallet::weight(10_000)]
 		/// Submit new response to the list.
 		///
 		/// This method is a public function of the module and can be called from within
@@ -290,7 +293,7 @@ pub mod pallet {
 		/// This example is not focused on correctness of the oracle itself, but rather its
 		/// purpose is to showcase offchain worker capabilities.
 		#[pallet::call_index(3)]
-		#[pallet::weight(0)]
+		#[pallet::weight(10_000)]
 		pub fn submit_response_unsigned(
 			origin: OriginFor<T>,
 			_block_number: T::BlockNumber,
@@ -307,7 +310,7 @@ pub mod pallet {
 		}
 
 		#[pallet::call_index(4)]
-		#[pallet::weight(0)]
+		#[pallet::weight(10_000)]
 		pub fn submit_response_unsigned_with_signed_payload(
 			origin: OriginFor<T>,
 			response_payload: ResponsePayload<T::Public, T::BlockNumber>,
@@ -393,6 +396,11 @@ pub mod pallet {
 		ResponseTooLarge,
 		/// Return error if the command is not valid.
 		InvalidCommand,
+
+		// Error returned when fetching github info
+		HttpFetchingError,
+		DeserializeToObjError,
+		DeserializeToStrError,
 	}
 
 	#[pallet::validate_unsigned]
@@ -658,9 +666,11 @@ impl<T: Config> Pallet<T> {
 		Ok(())
 	}
 
-	/// Fetches the current response from remote URL and returns it as a string.
+	/// Check if we have fetched the response data before. If yes, we can use the cached version
+	/// stored in off-chain worker storage `storage`. If not, we fetch the remote response and
+	/// write the response into the storage for future retrieval.
 	// TODO: change http to websocket
-	fn fetch_response() -> Result<String, http::Error> {
+	fn fetch_response() -> Result<(), Error<T>> {
 		// We want to keep the offchain worker execution time reasonable, so we set a hard-coded
 		// deadline to 3s to complete the external call.
 		// You can also wait idefinitely for the response, however you may still get a timeout
@@ -671,7 +681,7 @@ impl<T: Config> Pallet<T> {
 		// you can find in `sp_io`. The API is trying to be similar to `reqwest`, but
 		// since we are running in a custom WASM execution environment we can't simply
 		// import the library here.
-		let request = http::Request::get("http://127.0.0.1:9000/block");
+		let request = http::Request::get(HTTP_REQUEST);
 		// We set the deadline for sending of the request, note that awaiting response can
 		// have a separate deadline. Next we send the request, before that it's also possible
 		// to alter request headers or stream body content in case of non-GET requests.
@@ -711,11 +721,11 @@ impl<T: Config> Pallet<T> {
 		Ok(response)
 	}
 
-	/// Parse the response from the given JSON string using `lite-json`.
+	/// Parse the response from the given JSON string using `serde-json`.
 	///
 	/// Returns `None` when parsing failed or `Some(response)` when parsing is successful.
 	fn parse_response(response_str: &str) -> Option<ResponseData> {
-		let parsed_json = lite_json::parse_json(response_str);
+		let parsed_json = serde_json::parse_json(response_str);
 	
 		match parsed_json.ok()? {
 			JsonValue::Object(obj) => {
