@@ -408,7 +408,7 @@ pub mod pallet {
 			// Submit response received from CyberHub
 			Self::add_response(response);
 
-			// Self::deposit_event(Event::NewResponse { Some(who), response });
+			Self::deposit_event(Event::NewResponse { maybe_who: Some(who), response });
 
 			// Return a successful DispatchResult
 			Ok(())
