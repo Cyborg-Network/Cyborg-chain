@@ -489,8 +489,8 @@ pub mod pallet {
 		/// Returned if ocw function executed is not supported.
 		UnknownOffchainTx,
 
-		// Error returned when fetching github info
-		HttpFetchingError,
+		// Error returned when fetching Cyberhub response.
+		WSFetchingError,
 		DeserializeToObjError,
 		DeserializeToStrError,
 	}
@@ -739,8 +739,7 @@ impl<T: Config> Pallet<T> {
 	/// Check if we have fetched the response data before. If yes, we can use the cached version
 	/// stored in off-chain worker storage `storage`. If not, we fetch the remote response and
 	/// write the response into the storage for future retrieval.
-	// TODO: change http to websocket
-	fn fetch_response() -> Result<(), Error<T>> {
+	fn fetch_response() -> Result<ResponseData, Error<T>> {
 		// We want to keep the offchain worker execution time reasonable, so we set a hard-coded
 		// deadline to 3s to complete the external call.
 		// You can also wait idefinitely for the response, however you may still get a timeout
@@ -751,11 +750,11 @@ impl<T: Config> Pallet<T> {
 		// you can find in `sp_io`. The API is trying to be similar to `reqwest`, but
 		// since we are running in a custom WASM execution environment we can't simply
 		// import the library here.
-		let request = http::Request::get(HTTP_REQUEST);
+		let request = http::Request::get(WS_SERVER);
 		// We set the deadline for sending of the request, note that awaiting response can
 		// have a separate deadline. Next we send the request, before that it's also possible
 		// to alter request headers or stream body content in case of non-GET requests.
-		let pending = request.deadline(deadline).send().map_err(|_| http::Error::IoError)?;
+		let pending = request.deadline(deadline).send().map_err(|_| <Error<T>>::WSFetchingError)?;
 
 		// The request is already being processed by the host, we are free to do anything
 		// else in the worker (we can send multiple concurrent requests too).
@@ -763,11 +762,11 @@ impl<T: Config> Pallet<T> {
 		// so we can block current thread and wait for it to finish.
 		// Note that since the request is being driven by the host, we don't have to wait
 		// for the request to have it complete, we will just not read the response.
-		let response = pending.wait().map_err(|_| http::Error::IoError)?;
+		let response = pending.wait().map_err(|_| <Error<T>>::WSFetchingError)?;
 
 		if response.code != 200 {
 			log::warn!("Unexpected status code: {}", response.code);
-			return Err(http::Error::Unknown)
+			return Err(<Error<T>>::WSFetchingError)
 		}
 
 		// Next we want to fully read the response body and collect it to a vector of bytes.
@@ -775,14 +774,14 @@ impl<T: Config> Pallet<T> {
 		// Create a str slice from the body.
 		let body_str = sp_std::str::from_utf8(&body).map_err(|_| {
 			log::warn!("No UTF8 body");
-			http::Error::Unknown
+			<Error<T>>::WSFetchingError
 		})?;
 
 		let response = match Self::parse_response(body_str) {
 			Some(response_str) => Ok(response_str),
 			None => {
 				log::warn!("Unable to extract response from the Cyberhub: {:?}", body_str);
-				Err(http::Error::Unknown)
+				Err(<Error<T>>::WSFetchingError)
 			},
 		}?;
 
