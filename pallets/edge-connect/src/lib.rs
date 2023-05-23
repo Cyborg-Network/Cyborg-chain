@@ -330,14 +330,14 @@ pub mod pallet {
 		/// pays a fee to execute it.
 		/// This makes sure that it's not easy (or rather cheap) to attack the chain by submitting
 		/// excessive transactions.
-		pub fn submit_response_signed(origin: OriginFor<T>, response: String) -> DispatchResult {
+		pub fn submit_response_signed(origin: OriginFor<T>, response: ResponseData) -> DispatchResult {
 			// Retrieve the signer and check it is valid.
 			let who = ensure_signed(origin)?;
 
 			// Check that the connection exists.
 			ensure!(<Connection<T>>::exists(), Error::<T>::ConnectionDoesNotExist);
 
-			log::info!("submit_response_signed: ({}, {:?})", response, who);
+			log::info!("submit_response_signed: ({:?}, {:?})", response, who);
 
 			// Submit response received from CyberHub
 			Self::add_response(Some(who), response);
@@ -369,11 +369,11 @@ pub mod pallet {
 		pub fn submit_response_unsigned(
 			origin: OriginFor<T>,
 			_block_number: T::BlockNumber,
-			response: String,
+			response: ResponseData,
 		) -> DispatchResult {
 			// This ensures that the function can only be called via unsigned transaction.
 			ensure_none(origin)?;
-			log::info!("submit_response_unsigned: {}", response);
+			log::info!("submit_response_unsigned: {:?}", response);
 			// Add the response to the on-chain list, but mark it as coming from an empty address.
 			Self::add_response(None, response);
 			// now increment the block number at which we expect next unsigned transaction.
@@ -398,7 +398,7 @@ pub mod pallet {
 			Self::add_response(None, response_payload.response);
 			// now increment the block number at which we expect next unsigned transaction.
 			log::info!(
-				"submit_response_unsigned_with_signed_payload: ({}, {:?})",
+				"submit_response_unsigned_with_signed_payload: ({:?}, {:?})",
 				response_payload.response,
 				signature
 			);
@@ -471,7 +471,7 @@ pub mod pallet {
 		CommandSent { command: String, who: T::AccountId },
 		/// Event generated when a response is received from CyberHub.
 		/// [response, maybe_who]
-		NewResponse { response: String, maybe_who: Option<T::AccountId> },
+		NewResponse { response: ResponseData, maybe_who: Option<T::AccountId> },
 	}
 
 	// Errors inform users that something went wrong.
@@ -598,12 +598,9 @@ impl<T: Config> Pallet<T> {
 				"No local accounts available. Consider adding one via `author_insertKey` RPC.",
 			)
 		}
-		// Make an external HTTP request to fetch the current response.
+		// Make an external WS request to fetch the current response.
 		// Note this call will block until response is received.
 		let response = Self::fetch_response().map_err(|_| "Failed to fetch response")?;
-
-		// Clone the response for use in the closure.
-		let response_clone = response.clone();
 
 		// Using `send_signed_transaction` associated type we create and submit a transaction
 		// representing the call, we've just created.
@@ -611,13 +608,12 @@ impl<T: Config> Pallet<T> {
 		// local keystore with expected `KEY_TYPE`.
 		let results = signer.send_signed_transaction(|_account| {
 			// Clone the response_clone before moving it into the closure
-			let response_in_closure = response_clone.clone();
-			Call::submit_response_signed { response: response_in_closure }
+			Call::submit_response_signed { response }
 		});
 
 		for (acc, res) in &results {
 			match res {
-				Ok(()) => log::info!("[{:?}] Submitted response: {}", acc.id, response),
+				Ok(()) => log::info!("[{:?}] Submitted response: {:?}", acc.id, response),
 				Err(e) => log::error!("[{:?}] Failed to submit transaction: {:?}", acc.id, e),
 			}
 		}
@@ -796,8 +792,8 @@ impl<T: Config> Pallet<T> {
 	}
 
 	/// Add new response to the list.
-	fn add_response(maybe_who: Option<T::AccountId>, response: String) {
-		log::info!("Adding response to the list: {}", response);
+	fn add_response(maybe_who: Option<T::AccountId>, response: ResponseData) {
+		log::info!("Adding response to the list: {:?}", response);
 
 		// Convert the string to a byte vector.
 		let response_bytes = response.into_bytes();
@@ -823,7 +819,7 @@ impl<T: Config> Pallet<T> {
 				// Emit an event that new response has been received.
 				Self::deposit_event(Event::NewResponse {
 					maybe_who,
-					response: String::from_utf8(bounded_response.into()).unwrap(),
+					response: ResponseData::from_utf8(bounded_response.into()).unwrap(),
 				});
 			},
 			Err(_) => {
