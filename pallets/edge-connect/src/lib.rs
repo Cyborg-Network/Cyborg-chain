@@ -249,13 +249,13 @@ pub mod pallet {
 			};
 
 			match call {
-				Call::submit_response_unsigned { response: _response } =>
+				Call::submit_response_unsigned { block_number, response } =>
 					valid_tx(b"submit_response_unsigned".to_vec()),
 				Call::submit_response_unsigned_with_signed_payload {
-					ref payload,
+					ref response_payload,
 					ref signature,
 				} => {
-					if !SignedPayload::<T>::verify::<T::AuthorityId>(payload, signature.clone()) {
+					if !SignedPayload::<T>::verify::<T::AuthorityId>(response_payload, signature.clone()) {
 						return InvalidTransaction::BadProof.into()
 					}
 					valid_tx(b"submit_response_unsigned_with_signed_payload".to_vec())
