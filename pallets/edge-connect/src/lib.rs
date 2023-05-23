@@ -99,7 +99,7 @@ pub mod crypto {
 	}
 }
 
-#[derive(Deserialize, Encode, Decode, Default, RuntimeDebug, scale_info::TypeInfo)]
+#[derive(Clone, Deserialize, Encode, Decode, Default, RuntimeDebug, PartialEq, Eq, scale_info::TypeInfo)]
 pub struct ResponseData {
 	// Specify deserializing function to convert JSON string to vector of bytes
 	#[serde(deserialize_with = "de_string_to_bytes")]
@@ -501,7 +501,7 @@ pub mod pallet {
 #[derive(Encode, Decode, Clone, PartialEq, Eq, RuntimeDebug, scale_info::TypeInfo)]
 pub struct ResponsePayload<Public, BlockNumber> {
 	block_number: BlockNumber,
-	response: String,
+	response: ResponseData,
 	public: Public,
 }
 
@@ -671,16 +671,15 @@ impl<T: Config> Pallet<T> {
 		}
 
 		// Make an external HTTP request to fetch the current response.
-		// Note this call will block until response is received.
+		// Note this call will block until response is received.q
 		let response = Self::fetch_response().map_err(|_| "Failed to fetch response")?;
 
 		// -- Sign using any account
 		let (_, result) = Signer::<T, T::AuthorityId>::any_account()
 			.send_unsigned_transaction(
 				|account| {
-					let response_in_closure = response.clone();
 					ResponsePayload {
-						response: response_in_closure,
+						response,
 						block_number,
 						public: account.public.clone(),
 					}
@@ -715,9 +714,8 @@ impl<T: Config> Pallet<T> {
 		let transaction_results = Signer::<T, T::AuthorityId>::all_accounts()
 			.send_unsigned_transaction(
 				|account| {
-					let response_in_closure = response.clone();
 					ResponsePayload {
-						response: response_in_closure,
+						response,
 						block_number,
 						public: account.public.clone(),
 					}
