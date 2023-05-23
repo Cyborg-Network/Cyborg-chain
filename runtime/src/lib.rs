@@ -506,8 +506,8 @@ mod benches {
 		[pallet_balances, Balances]
 		[pallet_timestamp, Timestamp]
 		[pallet_template, TemplateModule]
-		[pallet_contracts, Contracts]
-		[pallet_edge_connect, EdgeConnect]
+		// [pallet_contracts, Contracts]
+		// [pallet_edge_connect, EdgeConnect]
 	);
 }
 

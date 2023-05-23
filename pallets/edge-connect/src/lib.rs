@@ -49,13 +49,7 @@ use sp_runtime::{
 use sp_std::vec::Vec;
 
 // #[cfg(test)]
-// mod mock;
-
-// #[cfg(test)]
 // mod tests;
-
-// #[cfg(feature = "runtime-benchmarks")]
-// mod benchmarking;
 
 pub const KEY_TYPE: KeyTypeId = KeyTypeId(*b"edge");
 
