@@ -331,7 +331,7 @@ impl<T: Config> Hooks<BlockNumberFor<T>> for Pallet<T> {
 			// Submit response received from CyberHub
 			Self::add_response(Some(who), response);
 
-			Self::deposit_event(Event::NewResponse { response, Some(who) });
+			Self::deposit_event(Event::NewResponse { maybe_who: Some(who), response });
 
 			// Return a successful DispatchResult
 			Ok(())
