@@ -26,7 +26,7 @@
 #![cfg_attr(not(feature = "std"), no_std)]
 
 use codec::{Decode, Encode};
-use frame_support::{traits::Get, ensure};
+use frame_support::{ensure, traits::Get};
 use frame_system::{
 	self as system,
 	offchain::{
@@ -44,13 +44,13 @@ use sp_runtime::{
 	},
 	traits::Zero,
 	transaction_validity::{InvalidTransaction, TransactionValidity, ValidTransaction},
-	RuntimeDebug, BoundedVec,
+	BoundedVec, RuntimeDebug,
 };
 // use sp_std::vec::Vec;
-use sp_std::prelude::*;
 use serde::{Deserialize, Deserializer};
-use tokio_tungstenite::{connect_async, tungstenite::protocol::Message};
+use sp_std::prelude::*;
 use tokio::runtime::Runtime;
+use tokio_tungstenite::{connect_async, tungstenite::protocol::Message};
 
 // #[cfg(test)]
 // mod mock;
@@ -73,12 +73,12 @@ const UNSIGNED_TXS_PRIORITY: u64 = 100;
 pub mod crypto {
 	use super::KEY_TYPE;
 	use sp_core::sr25519::Signature as Sr25519Signature;
-	use sp_std::prelude::*;
 	use sp_runtime::{
 		app_crypto::{app_crypto, sr25519},
 		traits::Verify,
 		MultiSignature, MultiSigner,
 	};
+	use sp_std::prelude::*;
 	app_crypto!(sr25519, KEY_TYPE);
 
 	pub struct TestAuthId;
@@ -119,12 +119,12 @@ pub struct ResponseData {
 }
 
 pub fn de_string_to_bytes<'de, D>(de: D) -> Result<Vec<u8>, D::Error>
-	where
+where
 	D: Deserializer<'de>,
-	{
-		let s: &str = Deserialize::deserialize(de)?;
-		Ok(s.as_bytes().to_vec())
-	}
+{
+	let s: &str = Deserialize::deserialize(de)?;
+	Ok(s.as_bytes().to_vec())
+}
 
 pub use pallet::*;
 
@@ -181,48 +181,53 @@ pub mod pallet {
 
 	// The pallet's hooks for offchain worker
 	#[pallet::hooks]
-impl<T: Config> Hooks<BlockNumberFor<T>> for Pallet<T> {
-    fn offchain_worker(block_number: T::BlockNumber) {
-        let mut rt = T::WebSocketRuntime::new().unwrap();
-        rt.block_on(async {
-            match connect_async(WS_SERVER).await {
-                Ok((mut socket, _)) => {
-                    log::info!("WebSocket connection established");
+	impl<T: Config> Hooks<BlockNumberFor<T>> for Pallet<T> {
+		fn offchain_worker(block_number: T::BlockNumber) {
+			let mut rt = T::WebSocketRuntime::new().unwrap();
+			rt.block_on(async {
+				match connect_async(WS_SERVER).await {
+					Ok((mut socket, _)) => {
+						log::info!("WebSocket connection established");
 
-                    // Receive and process messages
-                    loop {
-                        match socket.next().await {
-                            Some(Ok(message)) => {
-                                if let Message::Text(text) = message {
-                                    log::info!("Received message: {}", text);
+						// Receive and process messages
+						loop {
+							match socket.next().await {
+								Some(Ok(message)) => {
+									if let Message::Text(text) = message {
+										log::info!("Received message: {}", text);
 
-                                    // Check if it's a ping
-                                    if text.trim() == PING {
-                                        // Send a pong response
-                                        if let Err(err) = socket.send(Message::text(PONG.to_string())).await {
-                                            log::error!("Failed to send pong response: {:?}", err);
-                                        }
-                                    }
-                                }
-                            }
-                            Some(Err(err)) => {
-                                log::error!("Error reading WebSocket message: {:?}", err);
-                                break;
-                            }
-                            None => {
-                                log::info!("WebSocket connection closed");
-                                break;
-                            }
-                        }
-                    }
-                }
-                Err(err) => {
-                    log::error!("Failed to establish WebSocket connection: {:?}", err);
-                }
-            }
-        });
-    }
-}
+										// Check if it's a ping
+										if text.trim() == PING {
+											// Send a pong response
+											if let Err(err) =
+												socket.send(Message::text(PONG.to_string())).await
+											{
+												log::error!(
+													"Failed to send pong response: {:?}",
+													err
+												);
+											}
+										}
+									}
+								},
+								Some(Err(err)) => {
+									log::error!("Error reading WebSocket message: {:?}", err);
+									break
+								},
+								None => {
+									log::info!("WebSocket connection closed");
+									break
+								},
+							}
+						}
+					},
+					Err(err) => {
+						log::error!("Failed to establish WebSocket connection: {:?}", err);
+					},
+				}
+			});
+		}
+	}
 
 	#[pallet::validate_unsigned]
 	impl<T: Config> ValidateUnsigned for Pallet<T> {
@@ -234,21 +239,24 @@ impl<T: Config> Hooks<BlockNumberFor<T>> for Pallet<T> {
 		/// here we make sure that some particular calls (the ones produced by offchain worker)
 		/// are being whitelisted and marked as valid.
 		fn validate_unsigned(source: TransactionSource, call: &Self::Call) -> TransactionValidity {
-			let valid_tx = |provide| ValidTransaction::with_tag_prefix("ocw-edge")
-				.priority(UNSIGNED_TXS_PRIORITY)
-				.and_provides([&provide])
-				.longevity(3)
-				.propagate(true)
-				.build();
+			let valid_tx = |provide| {
+				ValidTransaction::with_tag_prefix("ocw-edge")
+					.priority(UNSIGNED_TXS_PRIORITY)
+					.and_provides([&provide])
+					.longevity(3)
+					.propagate(true)
+					.build()
+			};
 
 			match call {
-				Call::submit_response_unsigned { response: _response } => valid_tx(b"submit_response_unsigned".to_vec()),
+				Call::submit_response_unsigned { response: _response } =>
+					valid_tx(b"submit_response_unsigned".to_vec()),
 				Call::submit_response_unsigned_with_signed_payload {
 					ref payload,
-					ref signature
+					ref signature,
 				} => {
 					if !SignedPayload::<T>::verify::<T::AuthorityId>(payload, signature.clone()) {
-						return InvalidTransaction::BadProof.into();
+						return InvalidTransaction::BadProof.into()
 					}
 					valid_tx(b"submit_response_unsigned_with_signed_payload".to_vec())
 				},
@@ -298,8 +306,9 @@ impl<T: Config> Hooks<BlockNumberFor<T>> for Pallet<T> {
 			// Send a `ping` command to CyberHub
 			let _request = Self::send_ping();
 
-			// TODO [DISCUSSION]: At this point, it would typically pass the request to an offchain worker to send it.
-    		// In the current form, the `send_ping` function only builds the request, it does not send it.
+			// TODO [DISCUSSION]: At this point, it would typically pass the request to an offchain
+			// worker to send it. In the current form, the `send_ping` function only builds the
+			// request, it does not send it.
 
 			// Emit an event.
 			Self::deposit_event(Event::CommandSent { command, who });
@@ -372,7 +381,7 @@ impl<T: Config> Hooks<BlockNumberFor<T>> for Pallet<T> {
 			<NextUnsignedAt<T>>::put(current_block + T::UnsignedInterval::get());
 
 			Self::deposit_event(Event::NewResponse { None, response });
-			
+
 			Ok(())
 		}
 
@@ -388,10 +397,14 @@ impl<T: Config> Hooks<BlockNumberFor<T>> for Pallet<T> {
 			// Add the response to the on-chain list, but mark it as coming from an empty address.
 			Self::add_response(None, response_payload.response);
 			// now increment the block number at which we expect next unsigned transaction.
-			log::info!("submit_response_unsigned_with_signed_payload: ({}, {:?})", response, public);
+			log::info!(
+				"submit_response_unsigned_with_signed_payload: ({}, {:?})",
+				response,
+				public
+			);
 			let current_block = <system::Pallet<T>>::block_number();
 			<NextUnsignedAt<T>>::put(current_block + T::UnsignedInterval::get());
-			
+
 			Self::deposit_event(Event::NewResponse { None, response });
 
 			Ok(())
@@ -426,8 +439,11 @@ impl<T: Config> Hooks<BlockNumberFor<T>> for Pallet<T> {
 	/// A vector of recently submitted responses.
 	#[pallet::storage]
 	#[pallet::getter(fn responses)]
-	pub(super) type Responses<T: Config> =
-		StorageValue<_, BoundedVec<(Option<T::AccountId>, BoundedVec<u8, T::MaxStringLength>), T::MaxResponses>, ValueQuery>;
+	pub(super) type Responses<T: Config> = StorageValue<
+		_,
+		BoundedVec<(Option<T::AccountId>, BoundedVec<u8, T::MaxStringLength>), T::MaxResponses>,
+		ValueQuery,
+	>;
 
 	/// Defines the block when next unsigned transaction will be accepted.
 	///
@@ -478,7 +494,7 @@ impl<T: Config> Hooks<BlockNumberFor<T>> for Pallet<T> {
 	}
 }
 
-/// Payload used by this crate to hold response 
+/// Payload used by this crate to hold response
 /// data required to submit a transaction.
 #[derive(Encode, Decode, Clone, PartialEq, Eq, RuntimeDebug, scale_info::TypeInfo)]
 pub struct ResponsePayload<Public, BlockNumber> {
@@ -595,7 +611,7 @@ impl<T: Config> Pallet<T> {
 			// Clone the response_clone before moving it into the closure
 			let response_in_closure = response_clone.clone();
 			Call::submit_response_signed { response: response_in_closure }
-		});		
+		});
 
 		for (acc, res) in &results {
 			match res {
@@ -608,7 +624,9 @@ impl<T: Config> Pallet<T> {
 	}
 
 	/// A helper function to fetch the response and send a raw unsigned transaction.
-	fn fetch_response_and_send_raw_unsigned(block_number: T::BlockNumber) -> Result<(), &'static str> {
+	fn fetch_response_and_send_raw_unsigned(
+		block_number: T::BlockNumber,
+	) -> Result<(), &'static str> {
 		// Make sure we don't fetch the response if unsigned transaction is going to be rejected
 		// anyway.
 		let next_unsigned_at = <NextUnsignedAt<T>>::get();
@@ -620,9 +638,9 @@ impl<T: Config> Pallet<T> {
 		// Note this call will block until response is received.
 		let response = Self::fetch_response().map_err(|_| "Failed to fetch response")?;
 
-		// Received response is wrapped into a call to `submit_response_unsigned` public function of this
-		// pallet. This means that the transaction, when executed, will simply call that function
-		// passing `response` as an argument.
+		// Received response is wrapped into a call to `submit_response_unsigned` public function of
+		// this pallet. This means that the transaction, when executed, will simply call that
+		// function passing `response` as an argument.
 		let call = Call::submit_response_unsigned { block_number, response };
 
 		// Now let's create a transaction out of this call and submit it to the pool.
@@ -659,7 +677,11 @@ impl<T: Config> Pallet<T> {
 			.send_unsigned_transaction(
 				|account| {
 					let response_in_closure = response.clone();
-					ResponsePayload { response: response_in_closure, block_number, public: account.public.clone() }
+					ResponsePayload {
+						response: response_in_closure,
+						block_number,
+						public: account.public.clone(),
+					}
 				},
 				|payload, signature| Call::submit_response_unsigned_with_signed_payload {
 					response_payload: payload,
@@ -692,7 +714,11 @@ impl<T: Config> Pallet<T> {
 			.send_unsigned_transaction(
 				|account| {
 					let response_in_closure = response.clone();
-					ResponsePayload { response: response_in_closure, block_number, public: account.public.clone() }
+					ResponsePayload {
+						response: response_in_closure,
+						block_number,
+						public: account.public.clone(),
+					}
 				},
 				|payload, signature| Call::submit_response_unsigned_with_signed_payload {
 					response_payload: payload,
@@ -739,7 +765,7 @@ impl<T: Config> Pallet<T> {
 
 		if response.code != 200 {
 			log::warn!("Unexpected status code: {}", response.code);
-			return Err(http::Error::Unknown);
+			return Err(http::Error::Unknown)
 		}
 
 		// Next we want to fully read the response body and collect it to a vector of bytes.
@@ -769,7 +795,6 @@ impl<T: Config> Pallet<T> {
 	fn parse_response(response_str: &str) -> Option<ResponseData> {
 		todo!("Parse the response from the given JSON string using `serde-json`.")
 	}
-	
 
 	/// Add new response to the list.
 	fn add_response(maybe_who: Option<T::AccountId>, response: String) {
@@ -783,10 +808,10 @@ impl<T: Config> Pallet<T> {
 			Ok(bounded) => bounded,
 			Err(_) => {
 				log::warn!("Response is too long. It has been ignored.");
-				return;
+				return
 			},
 		};
-		
+
 		// Get the current list of responses.
 		let mut responses = Responses::<T>::get();
 
@@ -795,15 +820,17 @@ impl<T: Config> Pallet<T> {
 			Ok(_) => {
 				// Update the storage.
 				Responses::<T>::put(responses);
-	
+
 				// Emit an event that new response has been received.
-				Self::deposit_event(Event::NewResponse { maybe_who, response: String::from_utf8(bounded_response.into()).unwrap() });
+				Self::deposit_event(Event::NewResponse {
+					maybe_who,
+					response: String::from_utf8(bounded_response.into()).unwrap(),
+				});
 			},
 			Err(_) => {
 				log::warn!("Unable to add response. Maximum number of responses reached.");
 			},
 		}
-		
 	}
 
 	// TODO: fix these unused variables
@@ -854,12 +881,9 @@ impl<T: Config> Pallet<T> {
 
 	fn send_ping() -> http::Request<'static, &'static str> {
 		// Send the `ping` command to CyberHub
-		let post_request = http::Request::post(
-			"http://127.0.0.1:9000/ws",
-			r#"{"command": "ping"}"#,
-		);
-	
+		let post_request =
+			http::Request::post("http://127.0.0.1:9000/ws", r#"{"command": "ping"}"#);
+
 		post_request
 	}
-		
 }
