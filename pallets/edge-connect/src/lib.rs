@@ -380,7 +380,7 @@ pub mod pallet {
 			let current_block = <system::Pallet<T>>::block_number();
 			<NextUnsignedAt<T>>::put(current_block + T::UnsignedInterval::get());
 
-			Self::deposit_event(Event::NewResponse { None, response });
+			Self::deposit_event(Event::NewResponse { maybe_who: None, response });
 
 			Ok(())
 		}
@@ -399,13 +399,15 @@ pub mod pallet {
 			// now increment the block number at which we expect next unsigned transaction.
 			log::info!(
 				"submit_response_unsigned_with_signed_payload: ({}, {:?})",
-				response,
-				public
+				response_payload.response,
+				signature
 			);
 			let current_block = <system::Pallet<T>>::block_number();
 			<NextUnsignedAt<T>>::put(current_block + T::UnsignedInterval::get());
 
-			Self::deposit_event(Event::NewResponse { None, response });
+			let response = response_payload.response;
+
+			Self::deposit_event(Event::NewResponse { maybe_who: None, response });
 
 			Ok(())
 		}
