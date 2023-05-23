@@ -126,6 +126,8 @@ pub fn de_string_to_bytes<'de, D>(de: D) -> Result<Vec<u8>, D::Error>
 		Ok(s.as_bytes().to_vec())
 	}
 
+pub use pallet::*;
+
 #[frame_support::pallet]
 pub mod pallet {
 	use super::*;
