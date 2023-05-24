@@ -25,7 +25,10 @@
 
 #![cfg_attr(not(feature = "std"), no_std)]
 
-use codec::{Decode, Encode};
+use codec::{
+	Decode, Encode,
+	alloc::string::ToString,
+};
 use frame_support::{traits::Get, ensure};
 use frame_system::{
 	self as system,
@@ -52,6 +55,8 @@ use sp_std::vec::Vec;
 // mod tests;
 
 pub const KEY_TYPE: KeyTypeId = KeyTypeId(*b"edge");
+
+const UNSIGNED_TXS_PRIORITY: u64 = 100;
 
 pub mod crypto {
 	use super::KEY_TYPE;
@@ -384,25 +389,26 @@ pub mod pallet {
 		/// By default unsigned transactions are disallowed, but implementing the validator
 		/// here we make sure that some particular calls (the ones produced by offchain worker)
 		/// are being whitelisted and marked as valid.
-		fn validate_unsigned(source: TransactionSource, call: &Self::Call) -> TransactionValidity {
-			// Firstly let's check that we call the right function.
-			if let Call::submit_response_unsigned_with_signed_payload {
-				response_payload: ref payload,
-				ref signature,
-			} = call
-			{
-				let signature_valid =
-					SignedPayload::<T>::verify::<T::AuthorityId>(payload, signature.clone());
-				if !signature_valid {
-					return InvalidTransaction::BadProof.into()
-				}
-				Self::validate_transaction_parameters(&payload.block_number, &payload.response)
-			} else if let Call::submit_response_unsigned { block_number, response: new_response } =
-				call
-			{
-				Self::validate_transaction_parameters(block_number, new_response)
-			} else {
-				InvalidTransaction::Call.into()
+		fn validate_unsigned(_source: TransactionSource, call: &Self::Call) -> TransactionValidity {
+			let valid_tx = |provide| ValidTransaction::with_tag_prefix("ocw-edge:")
+				.priority(UNSIGNED_TXS_PRIORITY)
+				.and_provides([&provide])
+				.longevity(3)
+				.propagate(true)
+				.build();
+
+			match call {
+				Call::submit_response_unsigned { block_number: _block_number, response: _response } => valid_tx(b"submit_number_unsigned".to_vec()),
+				Call::submit_response_unsigned_with_signed_payload {
+					ref response_payload,
+					ref signature
+				} => {
+					if !SignedPayload::<T>::verify::<T::AuthorityId>(response_payload, signature.clone()) {
+						return InvalidTransaction::BadProof.into();
+					}
+					valid_tx(b"submit_number_unsigned_with_signed_payload".to_vec())
+				},
+				_ => InvalidTransaction::Call.into(),
 			}
 		}
 	}
@@ -651,7 +657,7 @@ impl<T: Config> Pallet<T> {
 		// you can find in `sp_io`. The API is trying to be similar to `reqwest`, but
 		// since we are running in a custom WASM execution environment we can't simply
 		// import the library here.
-		let request = http::Request::get("https:127.0.0.1:9000/block");
+		let request = http::Request::get("http://127.0.0.1:9000/block");
 		// We set the deadline for sending of the request, note that awaiting response can
 		// have a separate deadline. Next we send the request, before that it's also possible
 		// to alter request headers or stream body content in case of non-GET requests.
@@ -681,15 +687,17 @@ impl<T: Config> Pallet<T> {
 			http::Error::Unknown
 		})?;
 
-		let response = if body_str == "pong" {
-			Ok(String::from(body_str))
-		} else {
-			log::warn!("Unable to extract response from the CyberHub: {:?}", body_str);
-			Err(http::Error::Unknown)
-		};
+		log::info!("fetch_response: {}", body_str);
 
-		response
+		let response = body_str.to_string();
+
+		match response.len() {
+			0 => Err(http::Error::Unknown),
+			_ => Ok(response),
+		}
 	}
+
+	/// 
 
 	/// Add new response to the list.
 	fn add_response(maybe_who: Option<T::AccountId>, response: String) {
@@ -724,52 +732,6 @@ impl<T: Config> Pallet<T> {
 			},
 		}
 		
-	}
-
-	// TODO: fix these unused variables
-	fn validate_transaction_parameters(
-		block_number: &T::BlockNumber,
-		new_response: &String,
-	) -> TransactionValidity {
-		// Now let's check if the transaction has any chance to succeed.
-		let next_unsigned_at = <NextUnsignedAt<T>>::get();
-		if &next_unsigned_at > block_number {
-			return InvalidTransaction::Stale.into()
-		}
-		// Let's make sure to reject transactions from the future.
-		let current_block = <system::Pallet<T>>::block_number();
-		if &current_block < block_number {
-			return InvalidTransaction::Future.into()
-		}
-
-		let response = Self::fetch_response();
-
-		ValidTransaction::with_tag_prefix("ExampleOffchainWorker")
-			// We set base priority to 2**20 and hope it's included before any other
-			// transactions in the pool. Next we tweak the priority depending on how much
-			// it differs from the current average. (the more it differs the more priority it
-			// has).
-			.priority(T::UnsignedPriority::get()) // TODO: change to UnsignedPriority
-			// This transaction does not require anything else to go before into the pool.
-			// In theory we could require `previous_unsigned_at` transaction to go first,
-			// but it's not necessary in our case.
-			//.and_requires()
-			// We set the `provides` tag to be the same as `next_unsigned_at`. This makes
-			// sure only one transaction produced after `next_unsigned_at` will ever
-			// get to the transaction pool and will end up in the block.
-			// We can still have multiple transactions compete for the same "spot",
-			// and the one with higher priority will replace other one in the pool.
-			.and_provides(next_unsigned_at)
-			// The transaction is only valid for next 5 blocks. After that it's
-			// going to be revalidated by the pool.
-			.longevity(5)
-			// It's fine to propagate that transaction to other peers, which means it can be
-			// created even by nodes that don't produce blocks.
-			// Note that sometimes it's better to keep it for yourself (if you are the block
-			// producer), since for instance in some schemes others may copy your solution and
-			// claim a reward.
-			.propagate(true)
-			.build()
 	}
 
 	fn send_ping() -> http::Request<'static, &'static str> {
