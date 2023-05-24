@@ -25,7 +25,10 @@
 
 #![cfg_attr(not(feature = "std"), no_std)]
 
-use codec::{Decode, Encode};
+use codec::{
+	Decode, Encode,
+	alloc::string::ToString,
+};
 use frame_support::{traits::Get, ensure};
 use frame_system::{
 	self as system,
@@ -651,7 +654,7 @@ impl<T: Config> Pallet<T> {
 		// you can find in `sp_io`. The API is trying to be similar to `reqwest`, but
 		// since we are running in a custom WASM execution environment we can't simply
 		// import the library here.
-		let request = http::Request::get("https:127.0.0.1:9000/block");
+		let request = http::Request::get("http://127.0.0.1:9000/block");
 		// We set the deadline for sending of the request, note that awaiting response can
 		// have a separate deadline. Next we send the request, before that it's also possible
 		// to alter request headers or stream body content in case of non-GET requests.
@@ -681,15 +684,17 @@ impl<T: Config> Pallet<T> {
 			http::Error::Unknown
 		})?;
 
-		let response = if body_str == "pong" {
-			Ok(String::from(body_str))
-		} else {
-			log::warn!("Unable to extract response from the CyberHub: {:?}", body_str);
-			Err(http::Error::Unknown)
-		};
+		log::info!("fetch_response: {}", body_str);
 
-		response
+		let response = body_str.to_string();
+
+		match response.len() {
+			0 => Err(http::Error::Unknown),
+			_ => Ok(response),
+		}
 	}
+
+	/// 
 
 	/// Add new response to the list.
 	fn add_response(maybe_who: Option<T::AccountId>, response: String) {
