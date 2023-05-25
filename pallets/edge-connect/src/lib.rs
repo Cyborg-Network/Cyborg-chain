@@ -130,6 +130,10 @@ pub mod pallet {
 		#[pallet::constant]
 		type UnsignedPriority: Get<TransactionPriority>;
 
+		/// Max number of commands sent per request
+		#[pallet::constant]
+		type MaxCommand: Get<u32>;
+
 		/// Maximum number of responses received per request
 		#[pallet::constant]
 		type MaxResponses: Get<u32>;
@@ -218,11 +222,23 @@ pub mod pallet {
 			// Make sure the `command` == `ping`
 			ensure!(command == "ping", Error::<T>::InvalidCommand);
 
-			// Send a `ping` command to CyberHub
-			let _request = Self::send_ping();
+			// Convert the command to BoundedVec<u8, T::MaxStringLength>
+			let command_bounded_vec: BoundedVec<u8, T::MaxStringLength> = 
+				command.clone().into_bytes().try_into().map_err(|_| Error::<T>::CommandTooLong)?;
 
-			// TODO [DISCUSSION]: At this point, it would typically pass the request to an offchain worker to send it.
-    		// In the current form, the `send_ping` function only builds the request, it does not send it.
+			// Create the command tuple (Option<T::AccountId>, BoundedVec<u8, T::MaxStringLength>)
+			let command_tuple = (Some(who.clone()), command_bounded_vec);
+
+			// Try to get the current commands
+			let mut current_commands = <Commands<T>>::get();
+
+			// Try to push the new command tuple, if there's room
+			if !current_commands.try_push(command_tuple).is_ok() {
+				return Err(Error::<T>::TooManyCommands.into());
+			}
+
+			// Update the storage.
+			<Commands<T>>::put(current_commands);
 
 			// Emit an event.
 			Self::deposit_event(Event::CommandSent { command, who });
@@ -332,7 +348,14 @@ pub mod pallet {
 	// The pallet's runtime storage items.
 	#[pallet::storage]
 	#[pallet::getter(fn connection)]
-	pub type Connection<T> = StorageValue<_, u32>; // TODO: change to the proper data structure
+	pub type Connection<T> = StorageValue<_, u32, ValueQuery>;
+
+	/// A vector of recently submitted commands.
+	#[pallet::storage]
+	#[pallet::getter(fn commands)]
+	pub type Commands<T: Config> =
+		StorageValue<_, BoundedVec<(Option<T::AccountId>, BoundedVec<u8, T::MaxStringLength>), T::MaxCommand>, ValueQuery>;
+
 
 	/// A vector of recently submitted responses.
 	#[pallet::storage]
@@ -378,6 +401,10 @@ pub mod pallet {
 		ResponseTooLarge,
 		/// Return error if the command is not valid.
 		InvalidCommand,
+		/// Returned if the command is too long.
+		CommandTooLong,
+		/// Returned if the command are too many.
+		TooManyCommands,
 	}
 
 	#[pallet::validate_unsigned]
@@ -733,15 +760,4 @@ impl<T: Config> Pallet<T> {
 		}
 		
 	}
-
-	fn send_ping() -> http::Request<'static, &'static str> {
-		// Send the `ping` command to CyberHub
-		let post_request = http::Request::post(
-			"http://127.0.0.1:9000/ws",
-			r#"{"command": "ping"}"#,
-		);
-	
-		post_request
-	}
-		
 }

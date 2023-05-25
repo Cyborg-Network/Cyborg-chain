@@ -380,6 +380,7 @@ impl pallet_edge_connect::Config for Runtime {
 	type GracePeriod = (); // TODO: implement
 	type UnsignedInterval = (); // TODO: implement
 	type UnsignedPriority = (); // TODO: implement
+	type MaxCommand = (); // TODO: implement
 	type MaxResponses = (); // TODO: implement
 	type MaxStringLength = (); // TODO: implement
 }
