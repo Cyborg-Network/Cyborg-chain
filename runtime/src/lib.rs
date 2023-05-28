@@ -386,6 +386,7 @@ parameter_types! {
 // Configure the pallet edge-connect
 impl pallet_edge_connect::Config for Runtime {
 	type RuntimeEvent = RuntimeEvent;
+	type RuntimeCall = RuntimeCall;
 	type AuthorityId = pallet_edge_connect::crypto::TestAuthId;
 	type GracePeriod = GracePeriod;
 	type UnsignedInterval = UnsignedInterval;

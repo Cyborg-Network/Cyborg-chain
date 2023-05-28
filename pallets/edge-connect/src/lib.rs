@@ -103,6 +103,10 @@ pub mod pallet {
 		/// Because this pallet emits events, it depends on the runtime's definition of an event.
 		type RuntimeEvent: From<Event<Self>> + IsType<<Self as frame_system::Config>::RuntimeEvent>;
 
+		/// The overarching dispatch call type.
+		type RuntimeCall: From<Call<Self>>;
+		/// The identifier type for an offchain worker.
+
 		/// Authority ID used for offchain worker
 		type AuthorityId: AppCrypto<Self::Public, Self::Signature>;
 
