@@ -32,10 +32,12 @@ Alternatively, you can use one of the [alternative installation](#alternatives-i
 
 Use the following command to build the node without launching it:
 
+Compile the code
 ```sh
 cargo build --release
 ```
 
+Execute the off chain worker module
 ```sh
 ./target/release/cyborg-node --dev --offchain-worker always
 ```
