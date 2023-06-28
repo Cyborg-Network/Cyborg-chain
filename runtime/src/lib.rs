@@ -50,8 +50,7 @@ use pallet_transaction_payment::{ConstFeeMultiplier, CurrencyAdapter, Multiplier
 pub use sp_runtime::BuildStorage;
 pub use sp_runtime::{Perbill, Permill};
 
-/// Import the template pallet.
-pub use pallet_template;
+pub use pallet_edge_connect;
 
 /// An index to a block.
 pub type BlockNumber = u32;
@@ -304,9 +303,19 @@ impl pallet_sudo::Config for Runtime {
 	type RuntimeCall = RuntimeCall;
 }
 
-/// Configure the pallet-template in pallets/template.
-impl pallet_template::Config for Runtime {
+parameter_types! {
+	// TODO: TBD
+	pub const MaxCommand: u32 = 10;
+	pub const MaxResponses: u32 = 1000;
+	pub const MaxStringLength: u32 = 1000;
+}
+
+/// Configure the pallet-edge-connect.
+impl pallet_edge_connect::Config for Runtime {
 	type RuntimeEvent = RuntimeEvent;
+	type MaxCommand = MaxCommand;
+	type MaxResponses = MaxResponses;
+	type MaxStringLength = MaxStringLength;
 }
 
 // Configure the pallet-contracts
@@ -383,9 +392,9 @@ construct_runtime!(
 		Balances: pallet_balances,
 		TransactionPayment: pallet_transaction_payment,
 		Sudo: pallet_sudo,
-		// Include the custom logic from the pallet-template in the runtime.
-		TemplateModule: pallet_template,
+		// Include the custom logic from the pallets
 		Contracts: pallet_contracts,
+		EdgeConnect: pallet_edge_connect,
 	}
 );
 
