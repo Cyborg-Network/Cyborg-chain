@@ -2,7 +2,7 @@
 name = "cyborg-node"
 version = "0.1.0-dev"
 description = "Cyborg Node based on Substrate Framework"
-authors = ["SHA888 <https://github.com/SHA888>"]
+authors = ["Cyborg Network <https://github.com/Cyborg-Network>"]
 homepage = "https://cyborgnetwork.io/"
 edition = "2021"
 license = "GPLv3"
@@ -26,6 +26,7 @@ sc-executor = { version = "0.10.0-dev", git = "https://github.com/paritytech/sub
 sc-service = { version = "0.10.0-dev", git = "https://github.com/paritytech/substrate.git", branch = "polkadot-v0.9.41" }
 sc-telemetry = { version = "4.0.0-dev", git = "https://github.com/paritytech/substrate.git", branch = "polkadot-v0.9.41" }
 sc-keystore = { version = "4.0.0-dev", git = "https://github.com/paritytech/substrate.git", branch = "polkadot-v0.9.41" }
+sp-keystore = { version = "0.13.0", git = "https://github.com/paritytech/substrate.git", branch = "polkadot-v0.9.41" }
 sc-transaction-pool = { version = "4.0.0-dev", git = "https://github.com/paritytech/substrate.git", branch = "polkadot-v0.9.41" }
 sc-transaction-pool-api = { version = "4.0.0-dev", git = "https://github.com/paritytech/substrate.git", branch = "polkadot-v0.9.41" }
 sc-consensus-aura = { version = "0.10.0-dev", git = "https://github.com/paritytech/substrate.git", branch = "polkadot-v0.9.41" }

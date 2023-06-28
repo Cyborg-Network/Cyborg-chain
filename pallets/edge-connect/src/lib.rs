@@ -231,8 +231,6 @@ pub mod pallet {
 			Ok(())
 		}
 	}
-
-
 }
 
 impl<T: Config> Pallet<T> {
@@ -268,6 +266,5 @@ impl<T: Config> Pallet<T> {
 				log::warn!("Unable to add response. Maximum number of responses reached.");
 			},
 		}
-		
 	}
 }
