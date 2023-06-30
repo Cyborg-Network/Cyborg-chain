@@ -80,6 +80,7 @@ std = [
 	"pallet-edge-connect/std",
 	"pallet-grandpa/std",
 	"pallet-sudo/std",
+	"pallet-edge-connect/std",
 	"pallet-timestamp/std",
 	"pallet-transaction-payment-rpc-runtime-api/std",
 	"pallet-transaction-payment/std",
@@ -105,6 +106,7 @@ runtime-benchmarks = [
 	"pallet-balances/runtime-benchmarks",
 	"pallet-edge-connect/runtime-benchmarks",
 	"pallet-grandpa/runtime-benchmarks",
+	"pallet-edge-connect/runtime-benchmarks",
 	"pallet-timestamp/runtime-benchmarks",
 	"sp-runtime/runtime-benchmarks",
 ]
@@ -118,6 +120,7 @@ try-runtime = [
 	"pallet-edge-connect/try-runtime",
 	"pallet-grandpa/try-runtime",
 	"pallet-sudo/try-runtime",
+	"pallet-edge-connect/try-runtime",
 	"pallet-timestamp/try-runtime",
 	"pallet-transaction-payment/try-runtime",
 ]

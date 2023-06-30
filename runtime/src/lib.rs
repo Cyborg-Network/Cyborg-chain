@@ -305,6 +305,21 @@ impl pallet_sudo::Config for Runtime {
 	type RuntimeCall = RuntimeCall;
 }
 
+parameter_types! {
+	// TODO: TBD
+	pub const MaxCommand: u32 = 10;
+	pub const MaxResponses: u32 = 1000;
+	pub const MaxStringLength: u32 = 1000;
+}
+
+/// Configure the pallet-edge-connect.
+impl pallet_edge_connect::Config for Runtime {
+	type RuntimeEvent = RuntimeEvent;
+	type MaxCommand = MaxCommand;
+	type MaxResponses = MaxResponses;
+	type MaxStringLength = MaxStringLength;
+}
+
 // Configure the pallet-contracts
 parameter_types! {
 	pub const DepositPerByte: Balance = deposit(0, 1);
@@ -363,29 +378,6 @@ impl pallet_contracts::Config for Runtime {
 	type MaxStorageKeyLen = ConstU32<128>;
 	type UnsafeUnstableInterface = ConstBool<false>;
 	type MaxDebugBufferLen = ConstU32<{ 2 * 1024 * 1024 }>;
-}
-
-parameter_types! {
-	// TODO: TBD
-	pub const GracePeriod: BlockNumber = 3;
-	pub const UnsignedInterval: BlockNumber = 3;
-	pub const UnsignedPriority: BlockNumber = 3;
-	pub const MaxCommand: u32 = 10;
-	pub const MaxResponses: u32 = 1000;
-	pub const MaxStringLength: u32 = 1000;
-}
-
-// Configure the pallet edge-connect
-impl pallet_edge_connect::Config for Runtime {
-	type RuntimeEvent = RuntimeEvent;
-	type RuntimeCall = RuntimeCall;
-	type AuthorityId = pallet_edge_connect::crypto::TestAuthId;
-	type GracePeriod = GracePeriod;
-	type UnsignedInterval = UnsignedInterval;
-	type UnsignedPriority = UnsignedPriority;
-	type MaxCommand = MaxCommand;
-	type MaxResponses = MaxResponses;
-	type MaxStringLength = MaxStringLength;
 }
 
 // implement `CreateSignedTransaction` to allow `create_transaction` of offchain worker for runtime
@@ -459,6 +451,7 @@ construct_runtime!(
 		Balances: pallet_balances,
 		TransactionPayment: pallet_transaction_payment,
 		Sudo: pallet_sudo,
+		// Include the custom logic from the pallets
 		Contracts: pallet_contracts,
 		EdgeConnect: pallet_edge_connect,
 	}
