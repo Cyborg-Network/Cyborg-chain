@@ -22,6 +22,7 @@ lite-json = { version = "0.2.0", default-features = false }
 clap = { version = "4.0.9", features = ["derive"] }
 futures = { version = "0.3.21", features = ["thread-pool"]}
 jsonrpsee = { version = "0.16.2", features = ["server"] }
+serde_json = { version = "1.0.92" }
 
 pallet-aura = { version = "4.0.0-dev", default-features = false, git = "https://github.com/paritytech/substrate.git", branch = "polkadot-v0.9.41" }
 pallet-balances = { version = "4.0.0-dev", default-features = false, git = "https://github.com/paritytech/substrate.git", branch = "polkadot-v0.9.41" }

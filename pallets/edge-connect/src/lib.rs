@@ -25,11 +25,7 @@
 
 #![cfg_attr(not(feature = "std"), no_std)]
 
-use parity_scale_codec::{
-	Decode, Encode,
-	alloc::string::ToString,
-};
-use frame_support::{traits::Get, ensure};
+use frame_support::{ensure, traits::Get};
 use frame_system::{
 	self as system,
 	offchain::{
@@ -37,6 +33,7 @@ use frame_system::{
 		SignedPayload, Signer, SigningTypes, SubmitTransaction,
 	},
 };
+use parity_scale_codec::{alloc::string::ToString, Decode, Encode};
 use scale_info::prelude::string::String;
 use sp_core::crypto::KeyTypeId;
 use sp_runtime::{
@@ -47,7 +44,7 @@ use sp_runtime::{
 	},
 	traits::Zero,
 	transaction_validity::{InvalidTransaction, TransactionValidity, ValidTransaction},
-	RuntimeDebug, BoundedVec,
+	BoundedVec, RuntimeDebug,
 };
 use sp_std::vec::Vec;
 
@@ -227,8 +224,11 @@ pub mod pallet {
 			ensure!(command == "ping", Error::<T>::InvalidCommand);
 
 			// Convert the command to BoundedVec<u8, T::MaxStringLength>
-			let command_bounded_vec: BoundedVec<u8, T::MaxStringLength> = 
-				command.clone().into_bytes().try_into().map_err(|_| Error::<T>::CommandTooLong)?;
+			let command_bounded_vec: BoundedVec<u8, T::MaxStringLength> = command
+				.clone()
+				.into_bytes()
+				.try_into()
+				.map_err(|_| Error::<T>::CommandTooLong)?;
 
 			// Create the command tuple (Option<T::AccountId>, BoundedVec<u8, T::MaxStringLength>)
 			let command_tuple = (Some(who.clone()), command_bounded_vec);
@@ -238,7 +238,7 @@ pub mod pallet {
 
 			// Try to push the new command tuple, if there's room
 			if !current_commands.try_push(command_tuple).is_ok() {
-				return Err(Error::<T>::TooManyCommands.into());
+				return Err(Error::<T>::TooManyCommands.into())
 			}
 
 			// Update the storage.
@@ -357,15 +357,20 @@ pub mod pallet {
 	/// A vector of recently submitted commands.
 	#[pallet::storage]
 	#[pallet::getter(fn commands)]
-	pub type Commands<T: Config> =
-		StorageValue<_, BoundedVec<(Option<T::AccountId>, BoundedVec<u8, T::MaxStringLength>), T::MaxCommand>, ValueQuery>;
-
+	pub type Commands<T: Config> = StorageValue<
+		_,
+		BoundedVec<(Option<T::AccountId>, BoundedVec<u8, T::MaxStringLength>), T::MaxCommand>,
+		ValueQuery,
+	>;
 
 	/// A vector of recently submitted responses.
 	#[pallet::storage]
 	#[pallet::getter(fn responses)]
-	pub(super) type Responses<T: Config> =
-		StorageValue<_, BoundedVec<(Option<T::AccountId>, BoundedVec<u8, T::MaxStringLength>), T::MaxResponses>, ValueQuery>;
+	pub(super) type Responses<T: Config> = StorageValue<
+		_,
+		BoundedVec<(Option<T::AccountId>, BoundedVec<u8, T::MaxStringLength>), T::MaxResponses>,
+		ValueQuery,
+	>;
 
 	/// Defines the block when next unsigned transaction will be accepted.
 	///
@@ -421,21 +426,29 @@ pub mod pallet {
 		/// here we make sure that some particular calls (the ones produced by offchain worker)
 		/// are being whitelisted and marked as valid.
 		fn validate_unsigned(_source: TransactionSource, call: &Self::Call) -> TransactionValidity {
-			let valid_tx = |provide| ValidTransaction::with_tag_prefix("ocw-edge:")
-				.priority(UNSIGNED_TXS_PRIORITY)
-				.and_provides([&provide])
-				.longevity(3)
-				.propagate(true)
-				.build();
+			let valid_tx = |provide| {
+				ValidTransaction::with_tag_prefix("ocw-edge:")
+					.priority(UNSIGNED_TXS_PRIORITY)
+					.and_provides([&provide])
+					.longevity(3)
+					.propagate(true)
+					.build()
+			};
 
 			match call {
-				Call::submit_response_unsigned { block_number: _block_number, response: _response } => valid_tx(b"submit_number_unsigned".to_vec()),
+				Call::submit_response_unsigned {
+					block_number: _block_number,
+					response: _response,
+				} => valid_tx(b"submit_number_unsigned".to_vec()),
 				Call::submit_response_unsigned_with_signed_payload {
 					ref response_payload,
-					ref signature
+					ref signature,
 				} => {
-					if !SignedPayload::<T>::verify::<T::AuthorityId>(response_payload, signature.clone()) {
-						return InvalidTransaction::BadProof.into();
+					if !SignedPayload::<T>::verify::<T::AuthorityId>(
+						response_payload,
+						signature.clone(),
+					) {
+						return InvalidTransaction::BadProof.into()
 					}
 					valid_tx(b"submit_number_unsigned_with_signed_payload".to_vec())
 				},
@@ -445,7 +458,7 @@ pub mod pallet {
 	}
 }
 
-/// Payload used by this crate to hold response 
+/// Payload used by this crate to hold response
 /// data required to submit a transaction.
 #[derive(Encode, Decode, Clone, PartialEq, Eq, RuntimeDebug, scale_info::TypeInfo)]
 pub struct ResponsePayload<Public, BlockNumber> {
@@ -562,7 +575,7 @@ impl<T: Config> Pallet<T> {
 			// Clone the response_clone before moving it into the closure
 			let response_in_closure = response_clone.clone();
 			Call::submit_response { response: response_in_closure }
-		});		
+		});
 
 		for (acc, res) in &results {
 			match res {
@@ -575,7 +588,9 @@ impl<T: Config> Pallet<T> {
 	}
 
 	/// A helper function to fetch the response and send a raw unsigned transaction.
-	fn fetch_response_and_send_raw_unsigned(block_number: T::BlockNumber) -> Result<(), &'static str> {
+	fn fetch_response_and_send_raw_unsigned(
+		block_number: T::BlockNumber,
+	) -> Result<(), &'static str> {
 		// Make sure we don't fetch the response if unsigned transaction is going to be rejected
 		// anyway.
 		let next_unsigned_at = <NextUnsignedAt<T>>::get();
@@ -587,9 +602,9 @@ impl<T: Config> Pallet<T> {
 		// Note this call will block until response is received.
 		let response = Self::fetch_response().map_err(|_| "Failed to fetch response")?;
 
-		// Received response is wrapped into a call to `submit_response_unsigned` public function of this
-		// pallet. This means that the transaction, when executed, will simply call that function
-		// passing `response` as an argument.
+		// Received response is wrapped into a call to `submit_response_unsigned` public function of
+		// this pallet. This means that the transaction, when executed, will simply call that
+		// function passing `response` as an argument.
 		let call = Call::submit_response_unsigned { block_number, response };
 
 		// Now let's create a transaction out of this call and submit it to the pool.
@@ -626,7 +641,11 @@ impl<T: Config> Pallet<T> {
 			.send_unsigned_transaction(
 				|account| {
 					let response_in_closure = response.clone();
-					ResponsePayload { response: response_in_closure, block_number, public: account.public.clone() }
+					ResponsePayload {
+						response: response_in_closure,
+						block_number,
+						public: account.public.clone(),
+					}
 				},
 				|payload, signature| Call::submit_response_unsigned_with_signed_payload {
 					response_payload: payload,
@@ -659,7 +678,11 @@ impl<T: Config> Pallet<T> {
 			.send_unsigned_transaction(
 				|account| {
 					let response_in_closure = response.clone();
-					ResponsePayload { response: response_in_closure, block_number, public: account.public.clone() }
+					ResponsePayload {
+						response: response_in_closure,
+						block_number,
+						public: account.public.clone(),
+					}
 				},
 				|payload, signature| Call::submit_response_unsigned_with_signed_payload {
 					response_payload: payload,
@@ -728,7 +751,7 @@ impl<T: Config> Pallet<T> {
 		}
 	}
 
-	/// 
+	///
 
 	/// Add new response to the list.
 	fn add_response(maybe_who: Option<T::AccountId>, response: String) {
@@ -742,10 +765,10 @@ impl<T: Config> Pallet<T> {
 			Ok(bounded) => bounded,
 			Err(_) => {
 				log::warn!("Response is too long. It has been ignored.");
-				return;
+				return
 			},
 		};
-		
+
 		// Get the current list of responses.
 		let mut responses = Responses::<T>::get();
 
@@ -754,14 +777,16 @@ impl<T: Config> Pallet<T> {
 			Ok(_) => {
 				// Update the storage.
 				Responses::<T>::put(responses);
-	
+
 				// Emit an event that new response has been received.
-				Self::deposit_event(Event::NewResponse { maybe_who, response: String::from_utf8(bounded_response.into()).unwrap() });
+				Self::deposit_event(Event::NewResponse {
+					maybe_who,
+					response: String::from_utf8(bounded_response.into()).unwrap(),
+				});
 			},
 			Err(_) => {
 				log::warn!("Unable to add response. Maximum number of responses reached.");
 			},
 		}
-		
 	}
 }
