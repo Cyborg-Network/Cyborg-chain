@@ -1,11 +1,11 @@
 use cyborg_runtime::{
-	AccountId, AuraConfig, BalancesConfig, GenesisConfig, GrandpaConfig, Signature, SudoConfig,
-	SystemConfig, WASM_BINARY,
+	wasm_binary_unwrap, AccountId, AuraConfig, BalancesConfig, GenesisConfig, GrandpaConfig,
+	Signature, SudoConfig, SystemConfig,
 };
 use sc_service::ChainType;
 use sp_consensus_aura::sr25519::AuthorityId as AuraId;
 use sp_consensus_grandpa::AuthorityId as GrandpaId;
-use sp_core::{sr25519, Pair, Public};
+use sp_core::{crypto::Ss58Codec, sr25519, Pair, Public};
 use sp_runtime::traits::{IdentifyAccount, Verify};
 
 // The URL for the telemetry server.
@@ -37,8 +37,6 @@ pub fn authority_keys_from_seed(s: &str) -> (AuraId, GrandpaId) {
 }
 
 pub fn development_config() -> Result<ChainSpec, String> {
-	let wasm_binary = WASM_BINARY.ok_or_else(|| "Development wasm not available".to_string())?;
-
 	Ok(ChainSpec::from_genesis(
 		// Name
 		"Cyborg DevNet",
@@ -47,7 +45,6 @@ pub fn development_config() -> Result<ChainSpec, String> {
 		ChainType::Development,
 		move || {
 			testnet_genesis(
-				wasm_binary,
 				// Initial PoA authorities
 				vec![authority_keys_from_seed("Alice")],
 				// Sudo account
@@ -59,7 +56,6 @@ pub fn development_config() -> Result<ChainSpec, String> {
 					get_account_id_from_seed::<sr25519::Public>("Alice//stash"),
 					get_account_id_from_seed::<sr25519::Public>("Bob//stash"),
 				],
-				true,
 			)
 		},
 		// Bootnodes
@@ -77,8 +73,6 @@ pub fn development_config() -> Result<ChainSpec, String> {
 }
 
 pub fn local_testnet_config() -> Result<ChainSpec, String> {
-	let wasm_binary = WASM_BINARY.ok_or_else(|| "Development wasm not available".to_string())?;
-
 	Ok(ChainSpec::from_genesis(
 		// Name
 		"Local Testnet",
@@ -87,7 +81,6 @@ pub fn local_testnet_config() -> Result<ChainSpec, String> {
 		ChainType::Local,
 		move || {
 			testnet_genesis(
-				wasm_binary,
 				// Initial PoA authorities
 				vec![authority_keys_from_seed("Alice"), authority_keys_from_seed("Bob")],
 				// Sudo account
@@ -107,7 +100,6 @@ pub fn local_testnet_config() -> Result<ChainSpec, String> {
 					get_account_id_from_seed::<sr25519::Public>("Eve//stash"),
 					get_account_id_from_seed::<sr25519::Public>("Ferdie//stash"),
 				],
-				true,
 			)
 		},
 		// Bootnodes
@@ -124,22 +116,76 @@ pub fn local_testnet_config() -> Result<ChainSpec, String> {
 	))
 }
 
+pub fn enthiran_config() -> ChainSpec {
+	let mut properties = serde_json::map::Map::new();
+	properties.insert("tokenSymbol".into(), "ENTT".into());
+	properties.insert("tokenDecimals".into(), 18.into());
+
+	ChainSpec::from_genesis(
+		// Name
+		"Enthiran Testnet",
+		// ID
+		"enthiran_testnet",
+		ChainType::Local,
+		move || {
+			testnet_genesis(
+				// Initial PoA authorities
+				vec![authority_keys_from_seed("Alice"), authority_keys_from_seed("Bob")],
+				// Sudo account
+				get_account_id_from_seed::<sr25519::Public>("Alice"),
+				// Pre-funded accounts
+				vec![
+					get_account_id_from_seed::<sr25519::Public>("Alice"),
+					get_account_id_from_seed::<sr25519::Public>("Bob"),
+					get_account_id_from_seed::<sr25519::Public>("Charlie"),
+					// TEST1 account
+					// Import known test account
+					// 0x584519d66691a9ddae37bfb2b9f0788b45d37e92a504e0e0ec2fe7e9ed307a7b
+					// H160 address: [...]
+					AccountId::from_ss58check("5E4SberoKKe5UtNxS1dk51QdZAcKuryLAAJ6eDA9wgHUuPSA")
+						.unwrap(),
+					// TEST2 account
+					// Import known test account
+					// 0x02a20b5bd4cce872d9d8f3f17c56b61c588601641a919dfa2b56feb01f526f63
+					// H160 address: [...]
+					AccountId::from_ss58check("5C8A6BZSL3M1G7VP7bcDjatrEx8WLYd2Yup4tJy1rR5D4uXx")
+						.unwrap(),
+				],
+			)
+		},
+		// Bootnodes
+		vec![],
+		// Telemetry
+		None,
+		// Protocol ID
+		None,
+		// Fork_id
+		None,
+		// Properties
+		Some(properties),
+		// Extensions
+		None,
+	)
+}
+
 /// Configure initial storage state for FRAME modules.
 fn testnet_genesis(
-	wasm_binary: &[u8],
 	initial_authorities: Vec<(AuraId, GrandpaId)>,
 	root_key: AccountId,
 	endowed_accounts: Vec<AccountId>,
-	_enable_println: bool,
 ) -> GenesisConfig {
 	GenesisConfig {
 		system: SystemConfig {
 			// Add Wasm runtime to storage.
-			code: wasm_binary.to_vec(),
+			code: wasm_binary_unwrap().to_vec(),
 		},
 		balances: BalancesConfig {
 			// Configure endowed accounts with initial balance of 1 << 60.
-			balances: endowed_accounts.iter().cloned().map(|k| (k, 1 << 60)).collect(),
+			balances: endowed_accounts
+				.iter()
+				.cloned()
+				.map(|k| (k, 1_000_000_000_000_000_000_000_000_000))
+				.collect(),
 		},
 		aura: AuraConfig {
 			authorities: initial_authorities.iter().map(|x| (x.0.clone())).collect(),
