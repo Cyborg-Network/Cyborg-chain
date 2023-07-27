@@ -14,7 +14,7 @@ homepage = "https://cyborgnetwork.io/"
 repository = "https://github.com/Cyborg-Network/cyborg-node/"
 
 [workspace.dependencies]
-codec = { package = "parity-scale-codec", version = "3.2.2", default-features = false, features = ["derive"] }
+parity-scale-codec = { version = "3.2.2", default-features = false, features = ["derive"] }
 scale-info = { version = "2.1.1", default-features = false, features = ["derive"] }
 getrandom = { version = "0.2.9", features = ["js"] }
 log = { version = "0.4.17", default-features = false }

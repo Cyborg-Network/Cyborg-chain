@@ -6,7 +6,7 @@
 #[cfg(feature = "std")]
 include!(concat!(env!("OUT_DIR"), "/wasm_binary.rs"));
 
-use codec::Encode;
+use parity_scale_codec::Encode;
 use frame_support::dispatch::DispatchClass;
 use frame_system::limits::{BlockLength, BlockWeights};
 use pallet_grandpa::AuthorityId as GrandpaId;

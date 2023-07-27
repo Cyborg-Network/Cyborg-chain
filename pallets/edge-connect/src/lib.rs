@@ -25,7 +25,7 @@
 
 #![cfg_attr(not(feature = "std"), no_std)]
 
-use codec::{
+use parity_scale_codec::{
 	Decode, Encode,
 	alloc::string::ToString,
 };
