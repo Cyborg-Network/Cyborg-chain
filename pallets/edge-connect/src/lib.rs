@@ -25,7 +25,11 @@
 
 #![cfg_attr(not(feature = "std"), no_std)]
 
-use frame_support::{ensure, traits::Get};
+use parity_scale_codec::{
+	Decode, Encode,
+	alloc::string::ToString,
+};
+use frame_support::{traits::Get, ensure};
 use frame_system::{
 	self as system,
 	offchain::{
@@ -33,7 +37,6 @@ use frame_system::{
 		SignedPayload, Signer, SigningTypes, SubmitTransaction,
 	},
 };
-use parity_scale_codec::{alloc::string::ToString, Decode, Encode};
 use scale_info::prelude::string::String;
 use sp_core::crypto::KeyTypeId;
 use sp_runtime::{
@@ -44,17 +47,46 @@ use sp_runtime::{
 	},
 	traits::Zero,
 	transaction_validity::{InvalidTransaction, TransactionValidity, ValidTransaction},
-	BoundedVec, RuntimeDebug,
+	RuntimeDebug, BoundedVec,
 };
 use sp_std::vec::Vec;
 
 // #[cfg(test)]
 // mod tests;
 
-pub use pallet::*;
+pub const KEY_TYPE: KeyTypeId = KeyTypeId(*b"edge");
 
-#[cfg(test)]
-mod tests;
+const UNSIGNED_TXS_PRIORITY: u64 = 100;
+
+pub mod crypto {
+	use super::KEY_TYPE;
+	use sp_core::sr25519::Signature as Sr25519Signature;
+	use sp_runtime::{
+		app_crypto::{app_crypto, sr25519},
+		traits::Verify,
+		MultiSignature, MultiSigner,
+	};
+	app_crypto!(sr25519, KEY_TYPE);
+
+	pub struct TestAuthId;
+
+	impl frame_system::offchain::AppCrypto<MultiSigner, MultiSignature> for TestAuthId {
+		type RuntimeAppPublic = Public;
+		type GenericSignature = sp_core::sr25519::Signature;
+		type GenericPublic = sp_core::sr25519::Public;
+	}
+
+	// implemented for mock runtime in test
+	impl frame_system::offchain::AppCrypto<<Sr25519Signature as Verify>::Signer, Sr25519Signature>
+		for TestAuthId
+	{
+		type RuntimeAppPublic = Public;
+		type GenericSignature = sp_core::sr25519::Signature;
+		type GenericPublic = sp_core::sr25519::Public;
+	}
+}
+
+pub use pallet::*;
 
 #[frame_support::pallet]
 pub mod pallet {
@@ -67,9 +99,40 @@ pub mod pallet {
 
 	/// Configure the pallet by specifying the parameters and types on which it depends.
 	#[pallet::config]
-	pub trait Config: frame_system::Config {
+	pub trait Config: CreateSignedTransaction<Call<Self>> + frame_system::Config {
 		/// Because this pallet emits events, it depends on the runtime's definition of an event.
 		type RuntimeEvent: From<Event<Self>> + IsType<<Self as frame_system::Config>::RuntimeEvent>;
+
+		/// The overarching dispatch call type.
+		type RuntimeCall: From<Call<Self>>;
+		/// The identifier type for an offchain worker.
+
+		/// Authority ID used for offchain worker
+		type AuthorityId: AppCrypto<Self::Public, Self::Signature>;
+
+		// Configuration parameters
+
+		/// A grace period after we send transaction.
+		///
+		/// To avoid sending too many transactions, we only attempt to send one
+		/// every `GRACE_PERIOD` blocks. We use Local Storage to coordinate
+		/// sending between distinct runs of this offchain worker.
+		#[pallet::constant]
+		type GracePeriod: Get<Self::BlockNumber>;
+
+		/// Number of blocks of cooldown after unsigned transaction is included.
+		///
+		/// This ensures that we only accept unsigned transactions once, every `UnsignedInterval`
+		/// blocks.
+		#[pallet::constant]
+		type UnsignedInterval: Get<Self::BlockNumber>;
+
+		/// A configuration for base priority of unsigned transactions.
+		///
+		/// This is exposed so that it can be tuned for particular runtime, when
+		/// multiple pallets send unsigned transactions.
+		#[pallet::constant]
+		type UnsignedPriority: Get<TransactionPriority>;
 
 		/// Max number of commands sent per request
 		#[pallet::constant]
@@ -84,63 +147,48 @@ pub mod pallet {
 		type MaxStringLength: Get<u32>;
 	}
 
-	// The pallet's runtime storage items.
-	#[pallet::storage]
-	#[pallet::getter(fn connection)]
-	pub type Connection<T> = StorageValue<_, u32, ValueQuery>;
+	// The pallet's hooks for offchain worker
+	#[pallet::hooks]
+	impl<T: Config> Hooks<BlockNumberFor<T>> for Pallet<T> {
+		fn offchain_worker(block_number: T::BlockNumber) {
+			log::info!("Hello from offchain workers!");
 
-	/// A vector of recently submitted commands.
-	#[pallet::storage]
-	#[pallet::getter(fn commands)]
-	pub type Commands<T: Config> =
-		StorageValue<_, BoundedVec<(Option<T::AccountId>, BoundedVec<u8, T::MaxStringLength>), T::MaxCommand>, ValueQuery>;
+			let signer = Signer::<T, T::AuthorityId>::all_accounts();
+			if !signer.can_sign() {
+				log::error!("No local accounts available");
+				return
+			}
 
+			// Import `frame_system` and retrieve a block hash of the parent block.
+			let parent_hash = <system::Pallet<T>>::block_hash(block_number - 1u32.into());
+			log::debug!("Current block: {:?} (parent hash: {:?})", block_number, parent_hash);
 
-	/// A vector of recently submitted responses.
-	#[pallet::storage]
-	#[pallet::getter(fn responses)]
-	pub(super) type Responses<T: Config> =
-		StorageValue<_, BoundedVec<(Option<T::AccountId>, BoundedVec<u8, T::MaxStringLength>), T::MaxResponses>, ValueQuery>;
+			let response: String = Self::fetch_response().unwrap_or_else(|e| {
+				log::error!("fetch_response error: {:?}", e);
+				"Failed".into()
+			});
+			log::info!("Response: {}", response);
 
-	// Pallets use events to inform users when important changes are made.
-	#[pallet::event]
-	#[pallet::generate_deposit(pub(super) fn deposit_event)]
-	pub enum Event<T: Config> {
-		/// Event documentation should end with an array that provides descriptive names for event
-		/// parameters. [connection, who]
-		ConnectionCreated { connection: u32, who: T::AccountId },
-		/// Event documentation should end with an array that provides descriptive names for event
-		/// parameters. [connection, who]
-		ConnectionRemoved { connection: u32, who: T::AccountId },
-		/// Event generated when a new command is sent to CyberHub.
-		/// [command, who]
-		CommandSent { command: String, who: T::AccountId },
-		/// Event generated when a response is received from CyberHub.
-		/// [response, maybe_who]
-		NewResponse { response: String, maybe_who: Option<T::AccountId> },
-	}
-
-	// Errors inform users that something went wrong.
-	#[pallet::error]
-	pub enum Error<T> {
-		/// Returned if the connection already exists.
-		ConnectionAlreadyExists,
-		/// Returned if the connection does not exist.
-		ConnectionDoesNotExist,
-		/// Returned if the response is too large.
-		ResponseTooLarge,
-		/// Return error if the command is not valid.
-		InvalidCommand,
-		/// Returned if the command is too long.
-		CommandTooLong,
-		/// Returned if the command are too many.
-		TooManyCommands,
+			// This will send both signed and unsigned transactions
+			// depending on the block number.
+			// Usually it's enough to choose one or the other.
+			let should_send = Self::choose_transaction_type(block_number);
+			let res = match should_send {
+				TransactionType::Signed => Self::fetch_response_and_send_signed(),
+				TransactionType::UnsignedForAny =>
+					Self::fetch_response_and_send_unsigned_for_any_account(block_number),
+				TransactionType::UnsignedForAll =>
+					Self::fetch_response_and_send_unsigned_for_all_accounts(block_number),
+				TransactionType::Raw => Self::fetch_response_and_send_raw_unsigned(block_number),
+				TransactionType::None => Ok(()),
+			};
+			if let Err(e) = res {
+				log::error!("Error: {}", e);
+			}
+		}
 	}
 
 	// Public part of the pallet.
-	// Dispatchable functions allows users to interact with the pallet and invoke state changes.
-	// These functions materialize as "extrinsics", which are often compared to transactions.
-	// Dispatchable functions must be annotated with a weight and must return a DispatchResult.
 	#[pallet::call]
 	impl<T: Config> Pallet<T> {
 		/// Create connection
@@ -179,11 +227,8 @@ pub mod pallet {
 			ensure!(command == "ping", Error::<T>::InvalidCommand);
 
 			// Convert the command to BoundedVec<u8, T::MaxStringLength>
-			let command_bounded_vec: BoundedVec<u8, T::MaxStringLength> = command
-				.clone()
-				.into_bytes()
-				.try_into()
-				.map_err(|_| Error::<T>::CommandTooLong)?;
+			let command_bounded_vec: BoundedVec<u8, T::MaxStringLength> = 
+				command.clone().into_bytes().try_into().map_err(|_| Error::<T>::CommandTooLong)?;
 
 			// Create the command tuple (Option<T::AccountId>, BoundedVec<u8, T::MaxStringLength>)
 			let command_tuple = (Some(who.clone()), command_bounded_vec);
@@ -193,7 +238,7 @@ pub mod pallet {
 
 			// Try to push the new command tuple, if there's room
 			if !current_commands.try_push(command_tuple).is_ok() {
-				return Err(Error::<T>::TooManyCommands.into())
+				return Err(Error::<T>::TooManyCommands.into());
 			}
 
 			// Update the storage.
@@ -233,6 +278,56 @@ pub mod pallet {
 			Ok(().into())
 		}
 
+		/// Submit new response to the list via unsigned transaction.
+		///
+		/// Works exactly like the `submit_response` function, but since we allow sending the
+		/// transaction without a signature, and hence without paying any fees,
+		/// we need a way to make sure that only some transactions are accepted.
+		/// This function can be called only once every `T::UnsignedInterval` blocks.
+		/// Transactions that call that function are de-duplicated on the pool level
+		/// via `validate_unsigned` implementation and also are rendered invalid if
+		/// the function has already been called in current "session".
+		///
+		/// It's important to specify `weight` for unsigned calls as well, because even though
+		/// they don't charge fees, we still don't want a single block to contain unlimited
+		/// number of such transactions.
+		///
+		/// This example is not focused on correctness of the oracle itself, but rather its
+		/// purpose is to showcase offchain worker capabilities.
+		#[pallet::call_index(3)]
+		#[pallet::weight(0)]
+		pub fn submit_response_unsigned(
+			origin: OriginFor<T>,
+			_block_number: T::BlockNumber,
+			response: String,
+		) -> DispatchResultWithPostInfo {
+			// This ensures that the function can only be called via unsigned transaction.
+			ensure_none(origin)?;
+			// Add the response to the on-chain list, but mark it as coming from an empty address.
+			Self::add_response(None, response);
+			// now increment the block number at which we expect next unsigned transaction.
+			let current_block = <system::Pallet<T>>::block_number();
+			<NextUnsignedAt<T>>::put(current_block + T::UnsignedInterval::get());
+			Ok(().into())
+		}
+
+		#[pallet::call_index(4)]
+		#[pallet::weight(0)]
+		pub fn submit_response_unsigned_with_signed_payload(
+			origin: OriginFor<T>,
+			response_payload: ResponsePayload<T::Public, T::BlockNumber>,
+			_signature: T::Signature,
+		) -> DispatchResultWithPostInfo {
+			// This ensures that the function can only be called via unsigned transaction.
+			ensure_none(origin)?;
+			// Add the response to the on-chain list, but mark it as coming from an empty address.
+			Self::add_response(None, response_payload.response);
+			// now increment the block number at which we expect next unsigned transaction.
+			let current_block = <system::Pallet<T>>::block_number();
+			<NextUnsignedAt<T>>::put(current_block + T::UnsignedInterval::get());
+			Ok(().into())
+		}
+
 		// 3. remove_connection
 		#[pallet::call_index(5)]
 		#[pallet::weight(10_000 + T::DbWeight::get().writes(1).ref_time())]
@@ -262,20 +357,15 @@ pub mod pallet {
 	/// A vector of recently submitted commands.
 	#[pallet::storage]
 	#[pallet::getter(fn commands)]
-	pub type Commands<T: Config> = StorageValue<
-		_,
-		BoundedVec<(Option<T::AccountId>, BoundedVec<u8, T::MaxStringLength>), T::MaxCommand>,
-		ValueQuery,
-	>;
+	pub type Commands<T: Config> =
+		StorageValue<_, BoundedVec<(Option<T::AccountId>, BoundedVec<u8, T::MaxStringLength>), T::MaxCommand>, ValueQuery>;
+
 
 	/// A vector of recently submitted responses.
 	#[pallet::storage]
 	#[pallet::getter(fn responses)]
-	pub(super) type Responses<T: Config> = StorageValue<
-		_,
-		BoundedVec<(Option<T::AccountId>, BoundedVec<u8, T::MaxStringLength>), T::MaxResponses>,
-		ValueQuery,
-	>;
+	pub(super) type Responses<T: Config> =
+		StorageValue<_, BoundedVec<(Option<T::AccountId>, BoundedVec<u8, T::MaxStringLength>), T::MaxResponses>, ValueQuery>;
 
 	/// Defines the block when next unsigned transaction will be accepted.
 	///
@@ -331,29 +421,21 @@ pub mod pallet {
 		/// here we make sure that some particular calls (the ones produced by offchain worker)
 		/// are being whitelisted and marked as valid.
 		fn validate_unsigned(_source: TransactionSource, call: &Self::Call) -> TransactionValidity {
-			let valid_tx = |provide| {
-				ValidTransaction::with_tag_prefix("ocw-edge:")
-					.priority(UNSIGNED_TXS_PRIORITY)
-					.and_provides([&provide])
-					.longevity(3)
-					.propagate(true)
-					.build()
-			};
+			let valid_tx = |provide| ValidTransaction::with_tag_prefix("ocw-edge:")
+				.priority(UNSIGNED_TXS_PRIORITY)
+				.and_provides([&provide])
+				.longevity(3)
+				.propagate(true)
+				.build();
 
 			match call {
-				Call::submit_response_unsigned {
-					block_number: _block_number,
-					response: _response,
-				} => valid_tx(b"submit_number_unsigned".to_vec()),
+				Call::submit_response_unsigned { block_number: _block_number, response: _response } => valid_tx(b"submit_number_unsigned".to_vec()),
 				Call::submit_response_unsigned_with_signed_payload {
 					ref response_payload,
-					ref signature,
+					ref signature
 				} => {
-					if !SignedPayload::<T>::verify::<T::AuthorityId>(
-						response_payload,
-						signature.clone(),
-					) {
-						return InvalidTransaction::BadProof.into()
+					if !SignedPayload::<T>::verify::<T::AuthorityId>(response_payload, signature.clone()) {
+						return InvalidTransaction::BadProof.into();
 					}
 					valid_tx(b"submit_number_unsigned_with_signed_payload".to_vec())
 				},
@@ -363,7 +445,7 @@ pub mod pallet {
 	}
 }
 
-/// Payload used by this crate to hold response
+/// Payload used by this crate to hold response 
 /// data required to submit a transaction.
 #[derive(Encode, Decode, Clone, PartialEq, Eq, RuntimeDebug, scale_info::TypeInfo)]
 pub struct ResponsePayload<Public, BlockNumber> {
@@ -377,7 +459,6 @@ impl<T: SigningTypes> SignedPayload<T> for ResponsePayload<T::Public, T::BlockNu
 		self.public.clone()
 	}
 }
-
 enum TransactionType {
 	Signed,
 	UnsignedForAny,
@@ -480,7 +561,7 @@ impl<T: Config> Pallet<T> {
 			// Clone the response_clone before moving it into the closure
 			let response_in_closure = response_clone.clone();
 			Call::submit_response { response: response_in_closure }
-		});
+		});		
 
 		for (acc, res) in &results {
 			match res {
@@ -493,9 +574,7 @@ impl<T: Config> Pallet<T> {
 	}
 
 	/// A helper function to fetch the response and send a raw unsigned transaction.
-	fn fetch_response_and_send_raw_unsigned(
-		block_number: T::BlockNumber,
-	) -> Result<(), &'static str> {
+	fn fetch_response_and_send_raw_unsigned(block_number: T::BlockNumber) -> Result<(), &'static str> {
 		// Make sure we don't fetch the response if unsigned transaction is going to be rejected
 		// anyway.
 		let next_unsigned_at = <NextUnsignedAt<T>>::get();
@@ -507,9 +586,9 @@ impl<T: Config> Pallet<T> {
 		// Note this call will block until response is received.
 		let response = Self::fetch_response().map_err(|_| "Failed to fetch response")?;
 
-		// Received response is wrapped into a call to `submit_response_unsigned` public function of
-		// this pallet. This means that the transaction, when executed, will simply call that
-		// function passing `response` as an argument.
+		// Received response is wrapped into a call to `submit_response_unsigned` public function of this
+		// pallet. This means that the transaction, when executed, will simply call that function
+		// passing `response` as an argument.
 		let call = Call::submit_response_unsigned { block_number, response };
 
 		// Now let's create a transaction out of this call and submit it to the pool.
@@ -546,11 +625,7 @@ impl<T: Config> Pallet<T> {
 			.send_unsigned_transaction(
 				|account| {
 					let response_in_closure = response.clone();
-					ResponsePayload {
-						response: response_in_closure,
-						block_number,
-						public: account.public.clone(),
-					}
+					ResponsePayload { response: response_in_closure, block_number, public: account.public.clone() }
 				},
 				|payload, signature| Call::submit_response_unsigned_with_signed_payload {
 					response_payload: payload,
@@ -583,11 +658,7 @@ impl<T: Config> Pallet<T> {
 			.send_unsigned_transaction(
 				|account| {
 					let response_in_closure = response.clone();
-					ResponsePayload {
-						response: response_in_closure,
-						block_number,
-						public: account.public.clone(),
-					}
+					ResponsePayload { response: response_in_closure, block_number, public: account.public.clone() }
 				},
 				|payload, signature| Call::submit_response_unsigned_with_signed_payload {
 					response_payload: payload,
@@ -656,7 +727,8 @@ impl<T: Config> Pallet<T> {
 		}
 	}
 
-	///
+	/// 
+
 	/// Add new response to the list.
 	fn add_response(maybe_who: Option<T::AccountId>, response: String) {
 		log::info!("Adding response to the list: {}", response);
@@ -669,10 +741,10 @@ impl<T: Config> Pallet<T> {
 			Ok(bounded) => bounded,
 			Err(_) => {
 				log::warn!("Response is too long. It has been ignored.");
-				return
+				return;
 			},
 		};
-
+		
 		// Get the current list of responses.
 		let mut responses = Responses::<T>::get();
 
@@ -681,16 +753,14 @@ impl<T: Config> Pallet<T> {
 			Ok(_) => {
 				// Update the storage.
 				Responses::<T>::put(responses);
-
+	
 				// Emit an event that new response has been received.
-				Self::deposit_event(Event::NewResponse {
-					maybe_who,
-					response: String::from_utf8(bounded_response.into()).unwrap(),
-				});
+				Self::deposit_event(Event::NewResponse { maybe_who, response: String::from_utf8(bounded_response.into()).unwrap() });
 			},
 			Err(_) => {
 				log::warn!("Unable to add response. Maximum number of responses reached.");
 			},
 		}
+		
 	}
 }
