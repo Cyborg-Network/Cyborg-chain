@@ -1,8 +1,10 @@
-# Provider Rewards Pallet ( pallet-provider-rewards )
+# Rewards Pallet ( pallet-rewards )
 
 ## Overview
 
-A subsystem to allow for an automatic `reward` process, whereby a reward will be given to `providers` for providing a service or completing a task. This process is done in timely manner, and is not subject to the same governance process as other treasury proposals.
+A subsystem to allow for an automatic `reward` process, whereby a reward will be given to `providers` for providing a service or completing a task.
+
+In this version, the pallet offers foundational incentives to providers for maintaining consistent network connectivity. Rewards are recalculated hourly in the database based on random connectivity assessments by the edge connect pallet, with daily payout distribution.
 
 ### Terminology
 
