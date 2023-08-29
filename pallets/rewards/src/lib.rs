@@ -43,7 +43,11 @@ pub mod pallet {
 
     #[pallet::storage]
 	#[pallet::getter(fn providers)]
-	pub type Providers<T: Config> = StorageMap<_, Blake2_128Concat, T::AccountId, bool, ValueQuery>;
+	pub type Providers<T: Config> = StorageMap<_, Blake2_128Concat, T::AccountId, T::AccountId>;
+
+    #[pallet::storage]
+    #[pallet::getter(fn rewards)]
+    pub type Rewards<T: Config> = StorageMap<_, Blake2_128Concat, T::AccountId, u32>;
 
     #[pallet::event]
     #[pallet::generate_deposit(pub (super) fn deposit_event)]
@@ -54,6 +58,8 @@ pub mod pallet {
 
     #[pallet::error]
     pub enum Error<T> {
+        /// The provider is not connected.
+        NotConnected,
         /// The provider is not eligible to receive a reward.
         NotEligible,
         /// The provider has already been rewarded for this period.
@@ -70,11 +76,16 @@ pub mod pallet {
         pub fn check_provider_eligibility(
             origin: OriginFor<T>,
             provider: T::AccountId,
+            connection: bool,
         ) -> DispatchResult {
             // Check that the extrinsic was signed and get the signer.
             let who = ensure_signed(origin)?;
-            // chec
-            ensure!(Providers::<T>::get(provider), Error::<T>::NotEligible);
+
+            // Check if the provider is connected in the last hour.
+            ensure!(connection, Error::<T>::NotConnected);
+
+            // Check if the provider is already eligible to receive a reward.
+            ensure!(!Providers::<T>::contains_key(&provider), Error::<T>::AlreadyRewarded);
 
             // Update storage.
             Providers::<T>::insert(&provider, who);
@@ -90,7 +101,7 @@ pub mod pallet {
             provider: T::AccountId,
             reward: u32,
         ) -> DispatchResult {
-            let _ = ensure_signed(origin)?;
+            let _who = ensure_signed(origin)?;
 
             // Check if the provider is eligible to receive a reward.
             if Providers::<T>::contains_key(&provider) {
@@ -103,7 +114,7 @@ pub mod pallet {
             }
 
             // Reward the provider.
-            Providers::<T>::insert(&provider, true);
+            Rewards::<T>::insert(&provider, reward);
 
             // Emit an event.
             Self::deposit_event(Event::ProviderRewarded(provider, reward));
