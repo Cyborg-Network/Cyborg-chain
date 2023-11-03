@@ -24,6 +24,10 @@ futures = { version = "0.3.21", features = ["thread-pool"]}
 jsonrpsee = { version = "0.16.2", features = ["server"] }
 serde_json = { version = "1.0.92" }
 
+# update
+codec = { package = "parity-scale-codec", version = "3.0.0" }
+serde = { version = "1.0.188", features = ["derive"] }
+
 pallet-aura = { version = "4.0.0-dev", default-features = false, git = "https://github.com/paritytech/substrate.git", branch = "polkadot-v0.9.41" }
 pallet-balances = { version = "4.0.0-dev", default-features = false, git = "https://github.com/paritytech/substrate.git", branch = "polkadot-v0.9.41" }
 frame-support = { version = "4.0.0-dev", default-features = false, git = "https://github.com/paritytech/substrate.git", branch = "polkadot-v0.9.41" }
