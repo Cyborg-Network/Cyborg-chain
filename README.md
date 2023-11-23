@@ -16,7 +16,7 @@ Official Repository for the Cyborg Network
 [![Substrate version](https://img.shields.io/badge/Substrate-v3.0.0-brightgreen?logo=Parity%20Substrate)](https://github.com/paritytech/substrate/releases/tag/v3.0.0)
 [![Medium](https://img.shields.io/badge/Medium-Cyborg-brightgreen?logo=medium)](https://medium.com/)
 [![License](https://img.shields.io/github/license/Cyborg-Network/cyborg-node?color=green)](https://github.com/Cyborg-Network/cyborg-node/blob/main/LICENSE)
-[![Twitter URL](https://img.shields.io/twitter/url?style=social&url=https%3A%2F%2Ftwitter.com%2FNetworkCyb69686)](https://twitter.com/InvArchNetwork)
+[![Twitter URL](https://img.shields.io/twitter/url?style=social&url=https%3A%2F%2Ftwitter.com%2FNetworkCyb69686)](https://twitter.com/Cyborg_network_)
 [![Telegram](https://img.shields.io/badge/Telegram-gray?logo=telegram)](https://t.me/)
 <!-- [![Discord](https://img.shields.io/badge/Discord-gray?logo=discord)](https://discord.gg/) -->
 
