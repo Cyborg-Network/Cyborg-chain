@@ -36,6 +36,7 @@ use frame_system::{
 		AppCrypto, CreateSignedTransaction, SendSignedTransaction, SendUnsignedTransaction,
 		SignedPayload, Signer, SigningTypes, SubmitTransaction,
 	},
+	pallet_prelude::BlockNumberFor,
 };
 use scale_info::prelude::string::String;
 use sp_core::crypto::KeyTypeId;
@@ -118,14 +119,14 @@ pub mod pallet {
 		/// every `GRACE_PERIOD` blocks. We use Local Storage to coordinate
 		/// sending between distinct runs of this offchain worker.
 		#[pallet::constant]
-		type GracePeriod: Get<Self::BlockNumber>;
+		type GracePeriod: Get<BlockNumberFor<Self>>;
 
 		/// Number of blocks of cooldown after unsigned transaction is included.
 		///
 		/// This ensures that we only accept unsigned transactions once, every `UnsignedInterval`
 		/// blocks.
 		#[pallet::constant]
-		type UnsignedInterval: Get<Self::BlockNumber>;
+		type UnsignedInterval: Get<BlockNumberFor<Self>>;
 
 		/// A configuration for base priority of unsigned transactions.
 		///
@@ -150,7 +151,7 @@ pub mod pallet {
 	// The pallet's hooks for offchain worker
 	#[pallet::hooks]
 	impl<T: Config> Hooks<BlockNumberFor<T>> for Pallet<T> {
-		fn offchain_worker(block_number: T::BlockNumber) {
+		fn offchain_worker(block_number: BlockNumberFor<T>) {
 			log::info!("Hello from offchain workers!");
 
 			let signer = Signer::<T, T::AuthorityId>::all_accounts();
@@ -227,7 +228,7 @@ pub mod pallet {
 			ensure!(command == "ping", Error::<T>::InvalidCommand);
 
 			// Convert the command to BoundedVec<u8, T::MaxStringLength>
-			let command_bounded_vec: BoundedVec<u8, T::MaxStringLength> = 
+			let command_bounded_vec: BoundedVec<u8, T::MaxStringLength> =
 				command.clone().into_bytes().try_into().map_err(|_| Error::<T>::CommandTooLong)?;
 
 			// Create the command tuple (Option<T::AccountId>, BoundedVec<u8, T::MaxStringLength>)
@@ -298,7 +299,7 @@ pub mod pallet {
 		#[pallet::weight(0)]
 		pub fn submit_response_unsigned(
 			origin: OriginFor<T>,
-			_block_number: T::BlockNumber,
+			_block_number: BlockNumberFor<T>,
 			response: String,
 		) -> DispatchResultWithPostInfo {
 			// This ensures that the function can only be called via unsigned transaction.
@@ -315,7 +316,7 @@ pub mod pallet {
 		#[pallet::weight(0)]
 		pub fn submit_response_unsigned_with_signed_payload(
 			origin: OriginFor<T>,
-			response_payload: ResponsePayload<T::Public, T::BlockNumber>,
+			response_payload: ResponsePayload<T::Public, BlockNumberFor<T>>,
 			_signature: T::Signature,
 		) -> DispatchResultWithPostInfo {
 			// This ensures that the function can only be called via unsigned transaction.
@@ -374,7 +375,7 @@ pub mod pallet {
 	/// This storage entry defines when new transaction is going to be accepted.
 	#[pallet::storage]
 	#[pallet::getter(fn next_unsigned_at)]
-	pub(super) type NextUnsignedAt<T: Config> = StorageValue<_, T::BlockNumber, ValueQuery>;
+	pub(super) type NextUnsignedAt<T: Config> = StorageValue<_, BlockNumberFor<T>, ValueQuery>;
 
 	// Pallets use events to inform users when important changes are made.
 	#[pallet::event]
@@ -445,7 +446,7 @@ pub mod pallet {
 	}
 }
 
-/// Payload used by this crate to hold response 
+/// Payload used by this crate to hold response
 /// data required to submit a transaction.
 #[derive(Encode, Decode, Clone, PartialEq, Eq, RuntimeDebug, scale_info::TypeInfo)]
 pub struct ResponsePayload<Public, BlockNumber> {
@@ -454,7 +455,7 @@ pub struct ResponsePayload<Public, BlockNumber> {
 	public: Public,
 }
 
-impl<T: SigningTypes> SignedPayload<T> for ResponsePayload<T::Public, T::BlockNumber> {
+impl<T: SigningTypes> SignedPayload<T> for ResponsePayload<T::Public, BlockNumberFor<T>> {
 	fn public(&self) -> T::Public {
 		self.public.clone()
 	}
@@ -474,7 +475,7 @@ impl<T: Config> Pallet<T> {
 	/// and local storage usage.
 	///
 	/// Returns a type of transaction that should be produced in current run.
-	fn choose_transaction_type(block_number: T::BlockNumber) -> TransactionType {
+	fn choose_transaction_type(block_number: BlockNumberFor<T>) -> TransactionType {
 		/// A friendlier name for the error that is going to be returned in case we are in the grace
 		/// period.
 		const RECENTLY_SENT: () = ();
@@ -489,7 +490,7 @@ impl<T: Config> Pallet<T> {
 		// low-level method of local storage API, which means that only one worker
 		// will be able to "acquire a lock" and send a transaction if multiple workers
 		// happen to be executed concurrently.
-		let res = val.mutate(|last_send: Result<Option<T::BlockNumber>, StorageRetrievalError>| {
+		let res = val.mutate(|last_send: Result<Option<BlockNumberFor<T>>, StorageRetrievalError>| {
 			match last_send {
 				// If we already have a value in storage and the block number is recent enough
 				// we avoid sending another transaction at this time.
@@ -519,9 +520,9 @@ impl<T: Config> Pallet<T> {
 				let transaction_type = block_number % 4u32.into();
 				if transaction_type == Zero::zero() {
 					TransactionType::Signed
-				} else if transaction_type == T::BlockNumber::from(1u32) {
+				} else if transaction_type == (BlockNumberFor::<T>::from(1u8)) {
 					TransactionType::UnsignedForAny
-				} else if transaction_type == T::BlockNumber::from(2u32) {
+				} else if transaction_type == (BlockNumberFor::<T>::from(2u8)) {
 					TransactionType::UnsignedForAll
 				} else {
 					TransactionType::Raw
@@ -561,7 +562,7 @@ impl<T: Config> Pallet<T> {
 			// Clone the response_clone before moving it into the closure
 			let response_in_closure = response_clone.clone();
 			Call::submit_response { response: response_in_closure }
-		});		
+		});
 
 		for (acc, res) in &results {
 			match res {
@@ -574,7 +575,7 @@ impl<T: Config> Pallet<T> {
 	}
 
 	/// A helper function to fetch the response and send a raw unsigned transaction.
-	fn fetch_response_and_send_raw_unsigned(block_number: T::BlockNumber) -> Result<(), &'static str> {
+	fn fetch_response_and_send_raw_unsigned(block_number: BlockNumberFor<T>) -> Result<(), &'static str> {
 		// Make sure we don't fetch the response if unsigned transaction is going to be rejected
 		// anyway.
 		let next_unsigned_at = <NextUnsignedAt<T>>::get();
@@ -607,7 +608,7 @@ impl<T: Config> Pallet<T> {
 
 	/// A helper function to fetch the response, sign payload and send an unsigned transaction
 	fn fetch_response_and_send_unsigned_for_any_account(
-		block_number: T::BlockNumber,
+		block_number: BlockNumberFor<T>,
 	) -> Result<(), &'static str> {
 		// Make sure we don't fetch the response if unsigned transaction is going to be rejected
 		// anyway.
@@ -640,7 +641,7 @@ impl<T: Config> Pallet<T> {
 
 	/// A helper function to fetch the response, sign payload and send an unsigned transaction
 	fn fetch_response_and_send_unsigned_for_all_accounts(
-		block_number: T::BlockNumber,
+		block_number: BlockNumberFor<T>,
 	) -> Result<(), &'static str> {
 		// Make sure we don't fetch the response if unsigned transaction is going to be rejected
 		// anyway.
@@ -727,7 +728,7 @@ impl<T: Config> Pallet<T> {
 		}
 	}
 
-	/// 
+	///
 
 	/// Add new response to the list.
 	fn add_response(maybe_who: Option<T::AccountId>, response: String) {
@@ -744,7 +745,7 @@ impl<T: Config> Pallet<T> {
 				return;
 			},
 		};
-		
+
 		// Get the current list of responses.
 		let mut responses = Responses::<T>::get();
 
@@ -753,7 +754,7 @@ impl<T: Config> Pallet<T> {
 			Ok(_) => {
 				// Update the storage.
 				Responses::<T>::put(responses);
-	
+
 				// Emit an event that new response has been received.
 				Self::deposit_event(Event::NewResponse { maybe_who, response: String::from_utf8(bounded_response.into()).unwrap() });
 			},
@@ -761,6 +762,6 @@ impl<T: Config> Pallet<T> {
 				log::warn!("Unable to add response. Maximum number of responses reached.");
 			},
 		}
-		
+
 	}
 }
