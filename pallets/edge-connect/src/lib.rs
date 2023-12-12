@@ -296,7 +296,7 @@ pub mod pallet {
 		/// This example is not focused on correctness of the oracle itself, but rather its
 		/// purpose is to showcase offchain worker capabilities.
 		#[pallet::call_index(3)]
-		#[pallet::weight(0)]
+		#[pallet::weight({0})]
 		pub fn submit_response_unsigned(
 			origin: OriginFor<T>,
 			_block_number: BlockNumberFor<T>,
@@ -313,7 +313,7 @@ pub mod pallet {
 		}
 
 		#[pallet::call_index(4)]
-		#[pallet::weight(0)]
+		#[pallet::weight({0})]
 		pub fn submit_response_unsigned_with_signed_payload(
 			origin: OriginFor<T>,
 			response_payload: ResponsePayload<T::Public, BlockNumberFor<T>>,
