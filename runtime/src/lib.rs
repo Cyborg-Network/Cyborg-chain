@@ -25,6 +25,10 @@ use sp_runtime::{
 	ApplyExtrinsicResult, MultiSignature, SaturatedConversion,
 };
 use sp_std::prelude::*;
+
+#[cfg(feature = "runtime-benchmarks")]
+use pallet_contracts::NoopMigration;
+
 #[cfg(feature = "std")]
 use sp_version::NativeVersion;
 use sp_version::RuntimeVersion;
@@ -379,6 +383,7 @@ impl pallet_contracts::Config for Runtime {
 	type CallStack = [pallet_contracts::Frame<Self>; 31];
 	type DepositPerByte = DepositPerByte;
 	type DepositPerItem = DepositPerItem;
+	type DefaultDepositLimit = DefaultDepositLimit;
 	type AddressGenerator = pallet_contracts::DefaultAddressGenerator;
 	// This node is geared towards development and testing of contracts.
 	// We decided to increase the default allowed contract size for this
@@ -394,7 +399,8 @@ impl pallet_contracts::Config for Runtime {
 	type MaxDebugBufferLen = ConstU32<{ 2 * 1024 * 1024 }>;
 	#[cfg(not(feature = "runtime-benchmarks"))]
 	type Migrations = ();
-	type DefaultDepositLimit = DefaultDepositLimit;
+	#[cfg(feature = "runtime-benchmarks")]
+	type Migrations = (NoopMigration<1>, NoopMigration<2>);
 }
 
 // implement `CreateSignedTransaction` to allow `create_transaction` of offchain worker for runtime
@@ -456,10 +462,6 @@ where
 // Create the runtime by composing the FRAME pallets that were previously configured.
 construct_runtime!(
 	pub struct Runtime
-	where
-		Block = Block,
-		NodeBlock = opaque::Block,
-		UncheckedExtrinsic = UncheckedExtrinsic,
 	{
 		System: frame_system,
 		Timestamp: pallet_timestamp,
