@@ -51,6 +51,7 @@ use sp_runtime::{
 	RuntimeDebug, BoundedVec,
 };
 use sp_std::vec::Vec;
+use embedded_websocket::WebSocketClient;
 
 // #[cfg(test)]
 // mod tests;
@@ -154,38 +155,53 @@ pub mod pallet {
 		fn offchain_worker(block_number: BlockNumberFor<T>) {
 			log::info!("Hello from offchain workers!");
 
-			let signer = Signer::<T, T::AuthorityId>::all_accounts();
-			if !signer.can_sign() {
-				log::error!("No local accounts available");
-				return
-			}
+			// let signer = Signer::<T, T::AuthorityId>::all_accounts();
+			// if !signer.can_sign() {
+			// 	log::error!("No local accounts available");
+			// 	return
+			// }
+			//
+			// // Import `frame_system` and retrieve a block hash of the parent block.
+			// let parent_hash = <system::Pallet<T>>::block_hash(block_number - 1u32.into());
+			// log::debug!("Current block: {:?} (parent hash: {:?})", block_number, parent_hash);
 
-			// Import `frame_system` and retrieve a block hash of the parent block.
-			let parent_hash = <system::Pallet<T>>::block_hash(block_number - 1u32.into());
-			log::debug!("Current block: {:?} (parent hash: {:?})", block_number, parent_hash);
+			let mut write_buf = [0u8; 1000];
+			let mut handshake_buf = [0u8; 4000];
+			let mut ws_server = embedded_websocket::WebSocketServer::new_server();
+			let ws_key = embedded_websocket::WebSocketKey::from("Z7OY1UwHOx/nkSz38kfPwg==");
+			let sub_protocol = embedded_websocket::WebSocketSubProtocol::from("ws");
+			let len = ws_server
+			    .server_accept(&ws_key, Some(&sub_protocol), &mut handshake_buf)
+			    .unwrap();
 
-			let response: String = Self::fetch_response().unwrap_or_else(|e| {
-				log::error!("fetch_response error: {:?}", e);
-				"Failed".into()
-			});
+			let response = String::from_utf8(handshake_buf[..len].to_vec()).unwrap();
+
 			log::info!("Response: {}", response);
 
-			// This will send both signed and unsigned transactions
-			// depending on the block number.
-			// Usually it's enough to choose one or the other.
-			let should_send = Self::choose_transaction_type(block_number);
-			let res = match should_send {
-				TransactionType::Signed => Self::fetch_response_and_send_signed(),
-				TransactionType::UnsignedForAny =>
-					Self::fetch_response_and_send_unsigned_for_any_account(block_number),
-				TransactionType::UnsignedForAll =>
-					Self::fetch_response_and_send_unsigned_for_all_accounts(block_number),
-				TransactionType::Raw => Self::fetch_response_and_send_raw_unsigned(block_number),
-				TransactionType::None => Ok(()),
-			};
-			if let Err(e) = res {
-				log::error!("Error: {}", e);
-			}
+			ws_server.write(embedded_websocket::WebSocketSendMessageType::Text, true, "ping".as_bytes(),
+							&mut write_buf).unwrap();
+			// let response: String = Self::fetch_response().unwrap_or_else(|e| {
+			// 	log::error!("fetch_response error: {:?}", e);
+			// 	"Failed".into()
+			// });
+			// log::info!("Response: {}", response);
+			//
+			// // This will send both signed and unsigned transactions
+			// // depending on the block number.
+			// // Usually it's enough to choose one or the other.
+			// let should_send = Self::choose_transaction_type(block_number);
+			// let res = match should_send {
+			// 	TransactionType::Signed => Self::fetch_response_and_send_signed(),
+			// 	TransactionType::UnsignedForAny =>
+			// 		Self::fetch_response_and_send_unsigned_for_any_account(block_number),
+			// 	TransactionType::UnsignedForAll =>
+			// 		Self::fetch_response_and_send_unsigned_for_all_accounts(block_number),
+			// 	TransactionType::Raw => Self::fetch_response_and_send_raw_unsigned(block_number),
+			// 	TransactionType::None => Ok(()),
+			// };
+			// if let Err(e) = res {
+			// 	log::error!("Error: {}", e);
+			// }
 		}
 	}
 
