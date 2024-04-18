@@ -58,6 +58,8 @@ pub use sp_runtime::{Perbill, Permill};
 
 pub use pallet_edge_connect;
 
+pub use pallet_worker_registration;
+
 /// An index to a block.
 pub type BlockNumber = u32;
 
@@ -403,6 +405,10 @@ impl pallet_contracts::Config for Runtime {
 	type Migrations = (NoopMigration<1>, NoopMigration<2>);
 }
 
+impl pallet_worker_registration::Config for Runtime {
+	type RuntimeEvent = RuntimeEvent;
+	type WeightInfo = ();
+}
 // implement `CreateSignedTransaction` to allow `create_transaction` of offchain worker for runtime
 impl<LocalCall> frame_system::offchain::CreateSignedTransaction<LocalCall> for Runtime
 where
@@ -473,6 +479,7 @@ construct_runtime!(
 		// Include the custom logic from the pallets
 		Contracts: pallet_contracts,
 		EdgeConnect: pallet_edge_connect,
+		WorkerRegistration: pallet_worker_registration,
 	}
 );
 

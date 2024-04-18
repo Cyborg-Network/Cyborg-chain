@@ -9,14 +9,10 @@ use frame_support::{ pallet_prelude::*, ensure};
 use frame_system::{
 	pallet_prelude::*, WeightInfo
 };
-use scale_info::TypeInfo;
+use scale_info::{prelude::vec::Vec, TypeInfo};
 use sp_runtime::{
 	RuntimeDebug,
 };
-
-
-// Re-export all pallet parts, this is needed to properly import the pallet into the runtime.
-pub use frame_system::pallet::*;
 
 pub type ClusterId = u64;
 
@@ -37,22 +33,25 @@ pub struct Worker<AccountId, BlockNumber> {
 	pub status: u8,
 }
 
+// Re-export pallet items so that they can be accessed from the crate namespace.
+pub use pallet::*;
+
 #[frame_support::pallet]
 pub mod pallet {
 	use super::*;
 	use frame_support::pallet_prelude::*;
 	use frame_system::pallet_prelude::*;
 
+	#[pallet::pallet]
+	pub struct Pallet<T>(_);
+
 	#[pallet::config]
 	pub trait Config: frame_system::Config {
 		/// Pallet event
 		type RuntimeEvent: From<Event<Self>> + IsType<<Self as frame_system::Config>::RuntimeEvent>;
-		/// Weight information for extrinsics in this pallet.
+		// /// Weight information for extrinsics in this pallet.
 		type WeightInfo: WeightInfo;
 	}
-
-	#[pallet::pallet]
-	pub struct Pallet<T>(_);
 
 	#[pallet::type_value]
     pub fn DefaultForm1() -> ClusterId {
