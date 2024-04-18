@@ -11,7 +11,7 @@ panic = "unwind"
 authors = ["Cyborg Network <https://github.com/Cyborg-Network>"]
 edition = "2021"
 homepage = "https://cyborgnetwork.io/"
-repository = "https://github.com/Cyborg-Network/cyborg-node/"
+repository = "https://github.com/Cyborg-Network/cyborg-chain/"
 
 [workspace.dependencies]
 parity-scale-codec = { version = "3.2.2", default-features = false, features = ["derive"] }
@@ -23,6 +23,7 @@ clap = { version = "4.0.9", features = ["derive"] }
 futures = { version = "0.3.21", features = ["thread-pool"]}
 jsonrpsee = { version = "0.16.2", features = ["server"] }
 serde_json = { version = "1.0.92" }
+serde = { version = "1.0.189" }
 
 pallet-aura = { version = "4.0.0-dev", default-features = false, git = "https://github.com/paritytech/substrate.git", branch = "polkadot-v1.0.0" }
 pallet-balances = { version = "4.0.0-dev", default-features = false, git = "https://github.com/paritytech/substrate.git", branch = "polkadot-v1.0.0" }
@@ -42,6 +43,7 @@ sp-core = { version = "21.0.0", default-features = false, git = "https://github.
 sp-inherents = { version = "4.0.0-dev", default-features = false, git = "https://github.com/paritytech/substrate.git", branch = "polkadot-v1.0.0" }
 sp-io = { version = "23.0.0", default-features = false, git = "https://github.com/paritytech/substrate.git", branch = "polkadot-v1.0.0" }
 sp-offchain = { version = "4.0.0-dev", default-features = false, git = "https://github.com/paritytech/substrate.git", branch = "polkadot-v1.0.0" }
+sp-application-crypto = { version = "34.0.0", default-features = false }
 sp-runtime = { version = "24.0.0", default-features = false, git = "https://github.com/paritytech/substrate.git", branch = "polkadot-v1.0.0" }
 sp-session = { version = "4.0.0-dev", default-features = false, git = "https://github.com/paritytech/substrate.git", branch = "polkadot-v1.0.0" }
 sp-std = { version = "8.0.0", default-features = false, git = "https://github.com/paritytech/substrate.git", branch = "polkadot-v1.0.0" }

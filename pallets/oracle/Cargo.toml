@@ -1,0 +1,58 @@
+
+[package]
+name = "cyboracle"
+description = "Oracle module that makes off-chain cluster data available on-chain."
+version = "0.10.0"
+authors.workspace = true
+edition.workspace = true
+homepage.workspace = true
+repository.workspace = true
+license = "GPLv3"
+publish = false
+
+[dependencies]
+parity-scale-codec = { workspace = true }
+scale-info = { workspace = true }
+serde = { workspace = true, optional = true }
+
+frame-support = { workspace = true }
+frame-system = { workspace = true }
+sp-application-crypto = { workspace = true }
+sp-io = { workspace = true }
+sp-runtime = { workspace = true }
+sp-std = { workspace = true }
+frame-benchmarking = { workspace = true, optional = true }
+
+orml-traits = { version = "0.10.0", default-features = false }
+orml-utilities = { version = "0.10.0", default-features = false }
+
+[dev-dependencies]
+sp-core = { version = "32.0.0", default-features = false }
+
+[features]
+default = [ "std" ]
+std = [
+	"frame-benchmarking?/std",
+	"frame-support/std",
+	"frame-system/std",
+	"orml-traits/std",
+	"orml-utilities/std",
+	"parity-scale-codec/std",
+	"scale-info/std",
+	"serde",
+	"sp-application-crypto/std",
+	"sp-io/std",
+	"sp-runtime/std",
+	"sp-std/std",
+]
+try-runtime = [
+	"frame-support/try-runtime",
+	"frame-system/try-runtime",
+	"sp-runtime/try-runtime",
+]
+runtime-benchmarks = [
+	"frame-benchmarking/runtime-benchmarks",
+	"frame-support/runtime-benchmarks",
+	"frame-system/runtime-benchmarks",
+	"sp-runtime/runtime-benchmarks",
+]
