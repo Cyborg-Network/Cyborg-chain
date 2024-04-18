@@ -2,59 +2,138 @@
 
 #![cfg_attr(not(feature = "std"), no_std)]
 
-use frame::prelude::*;
+use parity_scale_codec::{
+	Decode, Encode,
+};
+use frame_support::{ pallet_prelude::*, ensure};
+use frame_system::{
+	pallet_prelude::*, WeightInfo
+};
+use scale_info::TypeInfo;
+use sp_runtime::{
+	RuntimeDebug,
+};
+
 
 // Re-export all pallet parts, this is needed to properly import the pallet into the runtime.
-pub use pallet::*;
+pub use frame_system::pallet::*;
+
+pub type ClusterId = u64;
+
+#[derive(Default, PartialEq, Eq, Clone, RuntimeDebug, Encode, Decode, TypeInfo)]
+pub struct Ip {
+	pub ipv4: Option<u32>,
+	pub ipv6: Option<u32>,
+}
 
 #[derive(PartialEq, Eq, Clone, RuntimeDebug, Encode, Decode, TypeInfo)]
 pub struct Worker<AccountId, BlockNumber> {
-	pub account_id: AccountId,
+	pub id: ClusterId,
+	pub account: AccountId,
 	pub start_block: BlockNumber,
 	pub name: Vec<u8>,
-	pub ip: Vec<u8>,
+	pub ip: Vec<Ip>,
 	pub port: u32,
 	pub status: u8,
 }
 
-#[frame::pallet]
+#[frame_support::pallet]
 pub mod pallet {
 	use super::*;
 	use frame_support::pallet_prelude::*;
 	use frame_system::pallet_prelude::*;
 
 	#[pallet::config]
-	pub trait Config: frame_system::Config {}
+	pub trait Config: frame_system::Config {
+		/// Pallet event
+		type RuntimeEvent: From<Event<Self>> + IsType<<Self as frame_system::Config>::RuntimeEvent>;
+		/// Weight information for extrinsics in this pallet.
+		type WeightInfo: WeightInfo;
+	}
 
 	#[pallet::pallet]
 	pub struct Pallet<T>(_);
 
-	// #[pallet::storage]
-	// #[pallet::getter(fn get_worker_accounts)]
-	// pub type WorkerAccounts<T: Config> = 
-	// 	StorageMap<_, OptionQuery>;
+	#[pallet::type_value]
+    pub fn DefaultForm1() -> ClusterId {
+        1
+    }
 
+	// /// Id of the next cluster of worker to be registered
+    #[pallet::storage]
+    #[pallet::getter(fn get_next_cluster_id)]
+    pub type NextClusterId<T: Config> = StorageValue<_, ClusterId, ValueQuery, DefaultForm1>;
+
+
+	/// user's Worker information
+	#[pallet::storage]
+	#[pallet::getter(fn get_worker_accounts)]
+	pub type WorkerAccounts<T: Config> = 
+		StorageMap<_, Identity, T::AccountId, ClusterId, OptionQuery>;
+
+	// /// Worker Cluster information
+	// #[pallet::storage]
+	// #[pallet::getter(fn get_worker_clusters)]
+	// pub type WorkerClusters<T: Config> = 
+	// 	StorageMap<_, Identity, ClusterId, Worker<T::AccountId, BlockNumberFor<T>>, OptionQuery>;
+
+	#[pallet::event]
+	#[pallet::generate_deposit(pub(super) fn deposit_event)]
+	pub enum Event<T: Config> {
+		WorkerRegistered{ creator: T::AccountId },
+	}
+
+	/// Pallet Errors
 	#[pallet::error]
 	pub enum Error<T> {
 		WorkerRegisterMissingIp,
 		WorkerRegisterMissingPort,
+		ClusterExists,
 	}
 
 	#[pallet::call]
 	impl<T:Config> Pallet<T> {
 		/// Worker cluster registration
-		#[pallet::call_index(001)]
+		#[pallet::call_index(1)]
+		#[pallet::weight(10_000 + T::DbWeight::get().writes(1).ref_time())]
 		pub fn worker_register(
 			origin: OriginFor<T>,
 			name: Vec<u8>,
-			ip: Vec<u8>,
+			ip: Vec<Ip>,
 			port: u32,
-			level: u8,
 		) -> DispatchResultWithPostInfo {
 			let creator = ensure_signed(origin)?;
 
-			ensure!(ip.len() > 0, Error<T>::WorkerRegisterMissingIp);
-			ensure!(port > 0, Error<T>::WorkerRegisterMissingPort);
+			//check ip
+			ensure!(ip.len() > 0, Error::<T>::WorkerRegisterMissingIp);
+			ensure!(port > 0, Error::<T>::WorkerRegisterMissingPort);
+			
+			//check cluster
+			ensure!(WorkerAccounts::<T>::contains_key(creator.clone()) == false, 
+			Error::<T>::ClusterExists);
+
+			let cid = NextClusterId::<T>::get();
+
+			let cluster = Worker {
+				id: cid.clone(),
+				account: creator.clone(),
+				start_block: <frame_system::Pallet<T>>::block_number(),
+				name: name.clone(),
+				ip: ip.clone(),
+				port: port.clone(),
+				status: 1,
+			};
+
+			//update storage
+			WorkerAccounts::<T>::insert(creator.clone(), cid.clone());
+			// WorkerClusters::<T>::insert(cid.clone(), cluster);
+			NextClusterId::<T>::mutate(|id| *id += 1);
+			//update data from offchain worker on cluster healthcheck and metadata
+
+			// Emit an event.
+			Self::deposit_event(Event::WorkerRegistered { creator });
+	
+			Ok(().into())
 		}
 	}
 }
