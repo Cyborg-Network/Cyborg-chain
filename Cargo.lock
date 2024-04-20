@@ -1642,9 +1642,9 @@ dependencies = [
 name = "cyboracle"
 version = "0.10.0"
 dependencies = [
- "frame-benchmarking",
- "frame-support 4.0.0-dev",
- "frame-system",
+ "frame-benchmarking 32.0.0",
+ "frame-support 32.0.0",
+ "frame-system 32.0.0",
  "orml-traits",
  "orml-utilities",
  "parity-scale-codec",
@@ -1652,9 +1652,9 @@ dependencies = [
  "serde",
  "sp-application-crypto 34.0.0",
  "sp-core 32.0.0",
- "sp-io 23.0.0",
- "sp-runtime 24.0.0",
- "sp-std 8.0.0",
+ "sp-io 34.0.0",
+ "sp-runtime 35.0.0",
+ "sp-std 14.0.0",
 ]
 
 [[package]]
@@ -1663,9 +1663,9 @@ version = "0.1.0-dev"
 dependencies = [
  "clap",
  "cyborg-runtime",
- "frame-benchmarking",
+ "frame-benchmarking 32.0.0",
  "frame-benchmarking-cli",
- "frame-system",
+ "frame-system 4.0.0-dev",
  "futures",
  "jsonrpsee",
  "pallet-transaction-payment",
@@ -1687,7 +1687,7 @@ dependencies = [
  "sc-transaction-pool",
  "sc-transaction-pool-api",
  "serde_json",
- "sp-api 4.0.0-dev",
+ "sp-api 30.0.0",
  "sp-block-builder",
  "sp-blockchain",
  "sp-consensus",
@@ -1709,10 +1709,10 @@ dependencies = [
 name = "cyborg-runtime"
 version = "0.1.0-dev"
 dependencies = [
- "frame-benchmarking",
+ "frame-benchmarking 32.0.0",
  "frame-executive",
- "frame-support 4.0.0-dev",
- "frame-system",
+ "frame-support 32.0.0",
+ "frame-system 32.0.0",
  "frame-system-benchmarking",
  "frame-system-rpc-runtime-api",
  "frame-try-runtime",
@@ -1730,16 +1730,16 @@ dependencies = [
  "pallet-transaction-payment-rpc-runtime-api",
  "parity-scale-codec",
  "scale-info",
- "sp-api 4.0.0-dev",
+ "sp-api 30.0.0",
  "sp-block-builder",
  "sp-consensus-aura",
  "sp-consensus-grandpa",
- "sp-core 21.0.0",
+ "sp-core 32.0.0",
  "sp-inherents 4.0.0-dev",
  "sp-offchain",
- "sp-runtime 24.0.0",
+ "sp-runtime 35.0.0",
  "sp-session",
- "sp-std 8.0.0",
+ "sp-std 14.0.0",
  "sp-transaction-pool",
  "sp-version 22.0.0",
  "substrate-wasm-builder",
@@ -2492,7 +2492,7 @@ source = "git+https://github.com/paritytech/substrate.git?branch=polkadot-v1.0.0
 dependencies = [
  "frame-support 4.0.0-dev",
  "frame-support-procedural 4.0.0-dev",
- "frame-system",
+ "frame-system 4.0.0-dev",
  "linregress",
  "log",
  "parity-scale-codec",
@@ -2511,6 +2511,32 @@ dependencies = [
 ]
 
 [[package]]
+name = "frame-benchmarking"
+version = "32.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7f6f8e21cbac73688175cf9b531ed1c3f6578420a0f6106282aa8e5ed6fe3347"
+dependencies = [
+ "frame-support 32.0.0",
+ "frame-support-procedural 27.0.0",
+ "frame-system 32.0.0",
+ "linregress",
+ "log",
+ "parity-scale-codec",
+ "paste",
+ "scale-info",
+ "serde",
+ "sp-api 30.0.0",
+ "sp-application-crypto 34.0.0",
+ "sp-core 32.0.0",
+ "sp-io 34.0.0",
+ "sp-runtime 35.0.0",
+ "sp-runtime-interface 27.0.0",
+ "sp-std 14.0.0",
+ "sp-storage 21.0.0",
+ "static_assertions",
+]
+
+[[package]]
 name = "frame-benchmarking-cli"
 version = "4.0.0-dev"
 source = "git+https://github.com/paritytech/substrate.git?branch=polkadot-v1.0.0#948fbd2fd1233dc26dbb9f9bbc1d2cca2c03945d"
@@ -2520,9 +2546,9 @@ dependencies = [
  "chrono",
  "clap",
  "comfy-table",
- "frame-benchmarking",
+ "frame-benchmarking 4.0.0-dev",
  "frame-support 4.0.0-dev",
- "frame-system",
+ "frame-system 4.0.0-dev",
  "gethostname",
  "handlebars",
  "itertools",
@@ -2564,7 +2590,7 @@ version = "4.0.0-dev"
 source = "git+https://github.com/paritytech/substrate.git?branch=polkadot-v1.0.0#948fbd2fd1233dc26dbb9f9bbc1d2cca2c03945d"
 dependencies = [
  "frame-support 4.0.0-dev",
- "frame-system",
+ "frame-system 4.0.0-dev",
  "frame-try-runtime",
  "parity-scale-codec",
  "scale-info",
@@ -2788,13 +2814,34 @@ dependencies = [
 ]
 
 [[package]]
+name = "frame-system"
+version = "32.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "562e02f5139f1beb0edd3cac2db3f974d98b7459342210d101f451d26886ca33"
+dependencies = [
+ "cfg-if",
+ "docify",
+ "frame-support 32.0.0",
+ "log",
+ "parity-scale-codec",
+ "scale-info",
+ "serde",
+ "sp-core 32.0.0",
+ "sp-io 34.0.0",
+ "sp-runtime 35.0.0",
+ "sp-std 14.0.0",
+ "sp-version 33.0.0",
+ "sp-weights 31.0.0",
+]
+
+[[package]]
 name = "frame-system-benchmarking"
 version = "4.0.0-dev"
 source = "git+https://github.com/paritytech/substrate.git?branch=polkadot-v1.0.0#948fbd2fd1233dc26dbb9f9bbc1d2cca2c03945d"
 dependencies = [
- "frame-benchmarking",
+ "frame-benchmarking 4.0.0-dev",
  "frame-support 4.0.0-dev",
- "frame-system",
+ "frame-system 4.0.0-dev",
  "parity-scale-codec",
  "scale-info",
  "sp-core 21.0.0",
@@ -5242,7 +5289,7 @@ version = "4.0.0-dev"
 source = "git+https://github.com/paritytech/substrate.git?branch=polkadot-v1.0.0#948fbd2fd1233dc26dbb9f9bbc1d2cca2c03945d"
 dependencies = [
  "frame-support 4.0.0-dev",
- "frame-system",
+ "frame-system 4.0.0-dev",
  "pallet-timestamp",
  "parity-scale-codec",
  "scale-info",
@@ -5258,7 +5305,7 @@ version = "4.0.0-dev"
 source = "git+https://github.com/paritytech/substrate.git?branch=polkadot-v1.0.0#948fbd2fd1233dc26dbb9f9bbc1d2cca2c03945d"
 dependencies = [
  "frame-support 4.0.0-dev",
- "frame-system",
+ "frame-system 4.0.0-dev",
  "impl-trait-for-tuples",
  "parity-scale-codec",
  "scale-info",
@@ -5268,17 +5315,19 @@ dependencies = [
 
 [[package]]
 name = "pallet-balances"
-version = "4.0.0-dev"
-source = "git+https://github.com/paritytech/substrate.git?branch=polkadot-v1.0.0#948fbd2fd1233dc26dbb9f9bbc1d2cca2c03945d"
+version = "33.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b56b559fbf1b04e08f42b08c0cb133cf732b4b0cafd315a3a24ba1ae60669d7e"
 dependencies = [
- "frame-benchmarking",
- "frame-support 4.0.0-dev",
- "frame-system",
+ "docify",
+ "frame-benchmarking 32.0.0",
+ "frame-support 32.0.0",
+ "frame-system 32.0.0",
  "log",
  "parity-scale-codec",
  "scale-info",
- "sp-runtime 24.0.0",
- "sp-std 8.0.0",
+ "sp-runtime 35.0.0",
+ "sp-std 14.0.0",
 ]
 
 [[package]]
@@ -5288,9 +5337,9 @@ source = "git+https://github.com/paritytech/substrate.git?branch=polkadot-v1.0.0
 dependencies = [
  "bitflags 1.3.2",
  "environmental",
- "frame-benchmarking",
+ "frame-benchmarking 4.0.0-dev",
  "frame-support 4.0.0-dev",
- "frame-system",
+ "frame-system 4.0.0-dev",
  "impl-trait-for-tuples",
  "log",
  "pallet-contracts-primitives",
@@ -5336,17 +5385,17 @@ dependencies = [
 name = "pallet-edge-connect"
 version = "0.1.0-dev"
 dependencies = [
- "frame-benchmarking",
- "frame-support 4.0.0-dev",
- "frame-system",
+ "frame-benchmarking 32.0.0",
+ "frame-support 32.0.0",
+ "frame-system 32.0.0",
  "lite-json",
  "log",
  "parity-scale-codec",
  "scale-info",
- "sp-core 21.0.0",
- "sp-io 23.0.0",
- "sp-runtime 24.0.0",
- "sp-std 8.0.0",
+ "sp-core 32.0.0",
+ "sp-io 34.0.0",
+ "sp-runtime 35.0.0",
+ "sp-std 14.0.0",
 ]
 
 [[package]]
@@ -5354,9 +5403,9 @@ name = "pallet-grandpa"
 version = "4.0.0-dev"
 source = "git+https://github.com/paritytech/substrate.git?branch=polkadot-v1.0.0#948fbd2fd1233dc26dbb9f9bbc1d2cca2c03945d"
 dependencies = [
- "frame-benchmarking",
+ "frame-benchmarking 4.0.0-dev",
  "frame-support 4.0.0-dev",
- "frame-system",
+ "frame-system 4.0.0-dev",
  "log",
  "pallet-authorship",
  "pallet-session",
@@ -5378,7 +5427,7 @@ version = "4.0.0-dev"
 source = "git+https://github.com/paritytech/substrate.git?branch=polkadot-v1.0.0#948fbd2fd1233dc26dbb9f9bbc1d2cca2c03945d"
 dependencies = [
  "frame-support 4.0.0-dev",
- "frame-system",
+ "frame-system 4.0.0-dev",
  "impl-trait-for-tuples",
  "log",
  "pallet-timestamp",
@@ -5398,9 +5447,9 @@ name = "pallet-sudo"
 version = "4.0.0-dev"
 source = "git+https://github.com/paritytech/substrate.git?branch=polkadot-v1.0.0#948fbd2fd1233dc26dbb9f9bbc1d2cca2c03945d"
 dependencies = [
- "frame-benchmarking",
+ "frame-benchmarking 4.0.0-dev",
  "frame-support 4.0.0-dev",
- "frame-system",
+ "frame-system 4.0.0-dev",
  "parity-scale-codec",
  "scale-info",
  "sp-io 23.0.0",
@@ -5413,9 +5462,9 @@ name = "pallet-timestamp"
 version = "4.0.0-dev"
 source = "git+https://github.com/paritytech/substrate.git?branch=polkadot-v1.0.0#948fbd2fd1233dc26dbb9f9bbc1d2cca2c03945d"
 dependencies = [
- "frame-benchmarking",
+ "frame-benchmarking 4.0.0-dev",
  "frame-support 4.0.0-dev",
- "frame-system",
+ "frame-system 4.0.0-dev",
  "log",
  "parity-scale-codec",
  "scale-info",
@@ -5432,7 +5481,7 @@ version = "4.0.0-dev"
 source = "git+https://github.com/paritytech/substrate.git?branch=polkadot-v1.0.0#948fbd2fd1233dc26dbb9f9bbc1d2cca2c03945d"
 dependencies = [
  "frame-support 4.0.0-dev",
- "frame-system",
+ "frame-system 4.0.0-dev",
  "parity-scale-codec",
  "scale-info",
  "serde",
