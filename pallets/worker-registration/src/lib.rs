@@ -1,6 +1,8 @@
 //! A shell pallet built with [`frame`].
 
 #![cfg_attr(not(feature = "std"), no_std)]
+#![allow(ambiguous_glob_reexports)]
+#![allow(unused_imports)]
 
 use parity_scale_codec::{
 	Decode, Encode,
@@ -13,12 +15,15 @@ use scale_info::TypeInfo;
 use sp_runtime::{
 	RuntimeDebug,
 };
+use frame_support::dispatch::Vec;
+use scale_info::prelude::string::String;
 
 
 // Re-export all pallet parts, this is needed to properly import the pallet into the runtime.
 pub use frame_system::pallet::*;
 
 pub type ClusterId = u64;
+pub type TaskId = u32;
 
 #[derive(Default, PartialEq, Eq, Clone, RuntimeDebug, Encode, Decode, TypeInfo)]
 pub struct Ip {
@@ -71,6 +76,16 @@ pub mod pallet {
 	pub type WorkerAccounts<T: Config> = 
 		StorageMap<_, Identity, T::AccountId, ClusterId, OptionQuery>;
 
+	
+	#[pallet::storage]
+    #[pallet::getter(fn task_allocations)]
+    pub type TaskAllocations<T: Config> = StorageMap<_, Twox64Concat, TaskId, T::AccountId, OptionQuery>;
+
+	#[pallet::storage]
+    #[pallet::getter(fn task_owners)]
+    pub type TaskOwners<T: Config> = StorageMap<_, Twox64Concat, TaskId, T::AccountId, OptionQuery>;
+
+
 	// /// Worker Cluster information
 	// #[pallet::storage]
 	// #[pallet::getter(fn get_worker_clusters)]
@@ -81,6 +96,12 @@ pub mod pallet {
 	#[pallet::generate_deposit(pub(super) fn deposit_event)]
 	pub enum Event<T: Config> {
 		WorkerRegistered{ creator: T::AccountId },
+		TaskScheduled {
+            worker: T::AccountId,
+			owner: T::AccountId,
+            task_id: TaskId,
+            task: String,
+        },
 	}
 
 	/// Pallet Errors
@@ -89,6 +110,7 @@ pub mod pallet {
 		WorkerRegisterMissingIp,
 		WorkerRegisterMissingPort,
 		ClusterExists,
+		NoWorkersAvailable,
 	}
 
 	#[pallet::call]
@@ -133,6 +155,37 @@ pub mod pallet {
 			// Emit an event.
 			Self::deposit_event(Event::WorkerRegistered { creator });
 	
+			Ok(().into())
+		}
+
+		#[pallet::call_index(2)]
+		#[pallet::weight(10_000 + T::DbWeight::get().writes(1).ref_time())]
+		pub fn task_scheduler(
+			origin: OriginFor<T>,
+			task_id: TaskId,
+			task_data: String,
+		) -> DispatchResultWithPostInfo {
+			let who = ensure_signed(origin)?;
+		
+			ensure!(WorkerAccounts::<T>::iter().next().is_some(), Error::<T>::NoWorkersAvailable);
+		
+			// Select one worker randomly.
+			let workers = WorkerAccounts::<T>::iter().collect::<Vec<_>>();
+			let random_index = (sp_io::hashing::blake2_256(&task_data.as_bytes())[0] as usize) % workers.len();
+			let selected_worker = workers[random_index].0.clone();
+		
+			// Assign task to worker and set task owner.
+			TaskAllocations::<T>::insert(task_id, selected_worker.clone());
+			TaskOwners::<T>::insert(task_id, who.clone());
+		
+			// Emit an event.
+			Self::deposit_event(Event::TaskScheduled {
+				worker: selected_worker,
+				owner: who,
+				task_id, 
+				task: task_data,
+			});
+		
 			Ok(().into())
 		}
 	}

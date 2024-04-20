@@ -5,6 +5,7 @@
 // Make the WASM binary available.
 #[cfg(feature = "std")]
 include!(concat!(env!("OUT_DIR"), "/wasm_binary.rs"));
+use frame_system::Origin;
 
 use frame_support::dispatch::DispatchClass;
 use frame_system::limits::{BlockLength, BlockWeights};
@@ -57,6 +58,7 @@ pub use sp_runtime::BuildStorage;
 pub use sp_runtime::{Perbill, Permill};
 
 pub use pallet_edge_connect;
+pub use pallet_worker_registration;
 
 /// An index to a block.
 pub type BlockNumber = u32;
@@ -342,6 +344,10 @@ impl pallet_edge_connect::Config for Runtime {
 	type MaxStringLength = MaxStringLength;
 }
 
+impl pallet_worker_registration::Config for Runtime {
+    type RuntimeEvent = RuntimeEvent;
+}
+
 // Configure the pallet-contracts
 parameter_types! {
 	pub const DepositPerByte: Balance = deposit(0, 1);
@@ -473,6 +479,7 @@ construct_runtime!(
 		// Include the custom logic from the pallets
 		Contracts: pallet_contracts,
 		EdgeConnect: pallet_edge_connect,
+		WorkerRegistration: pallet_worker_registration
 	}
 );
 
