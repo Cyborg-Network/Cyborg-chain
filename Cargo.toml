@@ -85,6 +85,7 @@ frame-system-benchmarking = { version = "4.0.0-dev", default-features = false, g
 
 # Local Dependencies
 pallet-edge-connect = { version = "0.1.0-dev", default-features = false, path = "../pallets/edge-connect" }
+pallet-worker-registration = { version = "0.1.0-dev", default-features = false, path = "../pallets/worker-registration" }
 
 # CLI-specific dependencies
 try-runtime-cli = { version = "0.10.0-dev", git = "https://github.com/paritytech/substrate.git", branch = "polkadot-v1.0.0" }
