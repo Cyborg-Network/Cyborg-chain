@@ -15,7 +15,7 @@ use scale_info::{prelude::vec::Vec, TypeInfo};
 use sp_runtime::{
 	RuntimeDebug,
 };
-use frame_support::dispatch::Vec;
+
 use scale_info::prelude::string::String;
 
 pub type ClusterId = u64;
