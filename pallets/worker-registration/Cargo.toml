@@ -19,6 +19,8 @@ parity-scale-codec = { version = "3.2.2", default-features = false, features = [
 log = { workspace = true }
 scale-info = { workspace = true }
 lite-json = { workspace = true }
+serde = { version = '1.0.100', default-features = false, features = ['derive'] }
+serde_json = { version = '1.0.45', default-features = false, features = ['alloc'] }
 
 frame-benchmarking = { workspace = true, optional = true }
 frame-support = { workspace = true }
