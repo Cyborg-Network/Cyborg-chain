@@ -409,6 +409,7 @@ impl pallet_contracts::Config for Runtime {
 impl pallet_worker_registration::Config for Runtime {
 	type RuntimeEvent = RuntimeEvent;
 	type WeightInfo = ();
+	type AuthorityId = pallet_worker_registration::crypto::ClusterStatusAuthId;
 }
 // implement `CreateSignedTransaction` to allow `create_transaction` of offchain worker for runtime
 impl<LocalCall> frame_system::offchain::CreateSignedTransaction<LocalCall> for Runtime
