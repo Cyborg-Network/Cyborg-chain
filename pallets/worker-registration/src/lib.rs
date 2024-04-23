@@ -84,6 +84,9 @@ pub mod pallet {
     #[pallet::getter(fn task_owners)]
     pub type TaskOwners<T: Config> = StorageMap<_, Twox64Concat, TaskId, T::AccountId, OptionQuery>;
 
+	#[pallet::storage]
+    #[pallet::getter(fn next_task_id)]
+    pub type NextTaskId<T: Config> = StorageValue<_, TaskId, ValueQuery>;
 
 	// /// Worker Cluster information
 	// #[pallet::storage]
@@ -161,12 +164,14 @@ pub mod pallet {
 		#[pallet::weight(10_000 + T::DbWeight::get().writes(1).ref_time())]
 		pub fn task_scheduler(
 			origin: OriginFor<T>,
-			task_id: TaskId,
 			task_data: String,
 		) -> DispatchResultWithPostInfo {
 			let who = ensure_signed(origin)?;
 		
 			ensure!(WorkerAccounts::<T>::iter().next().is_some(), Error::<T>::NoWorkersAvailable);
+
+			let task_id = NextTaskId::<T>::get();
+			NextTaskId::<T>::put(task_id.wrapping_add(1));
 		
 			// Select one worker randomly.
 			let workers = WorkerAccounts::<T>::iter().collect::<Vec<_>>();
