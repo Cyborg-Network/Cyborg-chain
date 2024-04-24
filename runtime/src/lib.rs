@@ -60,6 +60,8 @@ pub use sp_runtime::{Perbill, Permill};
 pub use pallet_edge_connect;
 pub use pallet_worker_registration;
 
+pub use pallet_worker_registration;
+
 /// An index to a block.
 pub type BlockNumber = u32;
 
