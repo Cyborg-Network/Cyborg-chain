@@ -1,13 +1,13 @@
 //! A shell pallet built with [`frame`].
 
 #![cfg_attr(not(feature = "std"), no_std)]
-#![allow(ambiguous_glob_reexports)]
-#![allow(unused_imports)]
+// #![allow(ambiguous_glob_reexports)]
+// #![allow(unused_imports)]
 
 use parity_scale_codec::{
 	Decode, Encode,
 };
-use frame_support::{ pallet_prelude::*, ensure};
+// use frame_support::{ pallet_prelude::*, ensure};
 use frame_system::{
 	pallet_prelude::*, WeightInfo
 };
@@ -48,13 +48,14 @@ pub mod pallet {
 	use frame_system::pallet_prelude::*;
 
 	#[pallet::pallet]
+	#[pallet::without_storage_info]
 	pub struct Pallet<T>(_);
 
 	#[pallet::config]
 	pub trait Config: frame_system::Config {
 		/// Pallet event
 		type RuntimeEvent: From<Event<Self>> + IsType<<Self as frame_system::Config>::RuntimeEvent>;
-		// /// Weight information for extrinsics in this pallet.
+		/// Weight information for extrinsics in this pallet.
 		type WeightInfo: WeightInfo;
 	}
 
@@ -63,7 +64,7 @@ pub mod pallet {
         1
     }
 
-	// /// Id of the next cluster of worker to be registered
+	/// Id of the next cluster of worker to be registered
     #[pallet::storage]
     #[pallet::getter(fn get_next_cluster_id)]
     pub type NextClusterId<T: Config> = StorageValue<_, ClusterId, ValueQuery, DefaultForm1>;
@@ -89,10 +90,10 @@ pub mod pallet {
     pub type NextTaskId<T: Config> = StorageValue<_, TaskId, ValueQuery>;
 
 	// /// Worker Cluster information
-	// #[pallet::storage]
-	// #[pallet::getter(fn get_worker_clusters)]
-	// pub type WorkerClusters<T: Config> = 
-	// 	StorageMap<_, Identity, ClusterId, Worker<T::AccountId, BlockNumberFor<T>>, OptionQuery>;
+	#[pallet::storage]
+	#[pallet::getter(fn get_worker_clusters)]
+	pub type WorkerClusters<T: Config> = 
+		StorageMap<_, Identity, ClusterId, Worker<T::AccountId, BlockNumberFor<T>>, OptionQuery>;
 
 	#[pallet::event]
 	#[pallet::generate_deposit(pub(super) fn deposit_event)]
