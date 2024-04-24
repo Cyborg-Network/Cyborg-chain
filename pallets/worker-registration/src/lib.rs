@@ -9,7 +9,7 @@ use parity_scale_codec::{
 use frame_system::{
 	pallet_prelude::*, WeightInfo
 };
-use scale_info::{prelude::vec::Vec, prelude::string::String, TypeInfo};
+use scale_info::{prelude::vec::Vec, prelude::{string::String, format}, TypeInfo};
 // use sp_runtime::{
 // 	RuntimeDebug,
 // };
@@ -40,8 +40,8 @@ pub type ClusterId = u64;
 
 #[derive(Default, PartialEq, Eq, Clone, RuntimeDebug, Encode, Decode, TypeInfo)]
 pub struct Ip {
-	pub ipv4: Option<u32>,
-	pub ipv6: Option<u32>,
+	pub ipv4: Option<Vec<u32>>,
+	pub ipv6: Option<Vec<u32>>,
 }
 
 #[derive(PartialEq, Eq, Clone, RuntimeDebug, Encode, Decode, TypeInfo)]
@@ -50,7 +50,7 @@ pub struct Worker<AccountId, BlockNumber> {
 	pub account: AccountId,
 	pub start_block: BlockNumber,
 	pub name: Vec<u8>,
-	pub ip: Vec<Ip>,
+	pub ip: Ip,
 	pub port: u32,
 	pub status: u8,
 }
@@ -99,6 +99,7 @@ pub mod pallet {
 	use frame_system::pallet_prelude::*;
 	
 	#[pallet::pallet]
+	#[pallet::without_storage_info]
 	pub struct Pallet<T>(_);
 
 	#[pallet::config]
@@ -128,11 +129,11 @@ pub mod pallet {
 	pub type WorkerAccounts<T: Config> = 
 		StorageMap<_, Identity, T::AccountId, ClusterId, OptionQuery>;
 
-	// /// Worker Cluster information
-	// #[pallet::storage]
-	// #[pallet::getter(fn get_worker_clusters)]
-	// pub type WorkerClusters<T: Config> = 
-	// 	StorageMap<_, Identity, ClusterId, Worker<T::AccountId, BlockNumberFor<T>>, OptionQuery>;
+	/// Worker Cluster information
+	#[pallet::storage]
+	#[pallet::getter(fn get_worker_clusters)]
+	pub type WorkerClusters<T: Config> = 
+		StorageMap<_, Identity, ClusterId, Worker<T::AccountId, BlockNumberFor<T>>, OptionQuery>;
 
 	#[pallet::event]
 	#[pallet::generate_deposit(pub(super) fn deposit_event)]
@@ -172,21 +173,23 @@ pub mod pallet {
 			if let Ok(Some(data)) = oci_mem.get::<IndexingData>() {
 				log::info!("off-chain indexing data: {:?}, {:?}",
 					str::from_utf8(&data.0).unwrap_or("error"), data.1);
+					if let Some(cluster) = Self::get_worker_clusters(data.1){
+						log::info!("cluster info: {:?}", cluster);
+
+						let response: String = Self::fetch_cluster_status(cluster.ip, cluster.port).unwrap_or_else(|e| {
+							log::error!("fetch_response error: {:?}", e);
+							"Failed".into()
+						});
+						log::info!("Response: {}", response);
+						// use response to submit info to blockchain about cluster
+			
+					} else {
+						log::info!("no retrieved.");
+				};
 			} else {
 				log::info!("no off-chain indexing data retrieved.");
 			}
 
-			// if let Some(cluster) = Self::get_worker_clusters(data){
-			// 		log::info!("cluster info: {:?}", cluster);
-			// 	} else {
-			// 		log::info!("no retrieved.");
-			// };
-
-			// let response: String = Self::fetch_cluster_status().unwrap_or_else(|e| {
-			// 	log::error!("fetch_response error: {:?}", e);
-			// 	"Failed".into()
-			// });
-			// log::info!("Response: {}", response);
 
 			// This will send both signed and unsigned transactions
 			// depending on the block number.
@@ -215,13 +218,13 @@ pub mod pallet {
 		pub fn worker_register(
 			origin: OriginFor<T>,
 			name: Vec<u8>,
-			ip: Vec<Ip>,
+			ip: Ip,
 			port: u32,
 		) -> DispatchResultWithPostInfo {
 			let creator = ensure_signed(origin)?;
 
 			//check ip
-			ensure!(ip.len() > 0, Error::<T>::WorkerRegisterMissingIp);
+			ensure!(ip.ipv4.is_some() || ip.ipv6.is_some(), Error::<T>::WorkerRegisterMissingIp);
 			ensure!(port > 0, Error::<T>::WorkerRegisterMissingPort);
 			
 			//check cluster
@@ -240,12 +243,13 @@ pub mod pallet {
 				status: 1,
 			};
 
-			//update storage
+			// update storage
 			WorkerAccounts::<T>::insert(creator.clone(), cid.clone());
-			// WorkerClusters::<T>::insert(cid.clone(), cluster);
+			WorkerClusters::<T>::insert(cid.clone(), cluster);
 			NextClusterId::<T>::mutate(|id| *id += 1);
 
-			//update data from offchain worker on cluster healthcheck and metadata
+			// update data from offchain worker on cluster healthcheck and metadata
+
 			// Off-chain indexing allowing on-chain extrinsics to write to off-chain storage predictably
 			// so it can be read in off-chain worker context. As off-chain indexing is called in on-chain
 			// context, if it is agreed upon by the blockchain consensus mechanism, then it is expected
@@ -291,7 +295,16 @@ pub mod pallet {
 			// you can find in `sp_io`. The API is trying to be similar to `reqwest`, but
 			// since we are running in a custom WASM execution environment we can't simply
 			// import the library here.
-			let request = http::Request::get("http://${ip}:{port}/status");
+			let string_ip = match ip {
+				Ip { ipv4: Some(i), ..}  => i.iter().map(|n| n.to_string()).collect::<Vec<_>>().join("."),
+				Ip { ipv6: Some(i), .. }  => i.iter().map(|n| n.to_string()).collect::<Vec<_>>().join(":"),
+				_=> {
+					format!("localhost")
+				}
+			};
+			
+			let url = format!("http://{}:{}/status", string_ip, port);
+			let request = http::Request::get(&url);
 			// We set the deadline for sending of the request, note that awaiting response can
 			// have a separate deadline. Next we send the request, before that it's also possible
 			// to alter request headers or stream body content in case of non-GET requests.
