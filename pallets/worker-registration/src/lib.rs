@@ -38,8 +38,6 @@ use sp_io::offchain_index;
 use serde::{Deserialize, Deserializer};
 use sp_std::str;
 
-use scale_info::prelude::string::String;
-
 pub type ClusterId = u64;
 pub type TaskId = u32;
 
@@ -247,7 +245,7 @@ pub mod pallet {
 			name: Vec<u8>,
 			ip: Ip,
 			port: u32,
-		) -> DispatchResultWithPostInfo {
+		) -> DispatchResult {
 			let creator = ensure_signed(origin)?;
 
 			//check ip
@@ -294,7 +292,7 @@ pub mod pallet {
 			// Emit an event.
 			Self::deposit_event(Event::WorkerRegistered { creator });
 	
-			Ok(().into())
+			Ok(())
 		}
 
 		#[pallet::call_index(2)]
@@ -302,7 +300,7 @@ pub mod pallet {
 		pub fn task_scheduler(
 			origin: OriginFor<T>,
 			task_data: String,
-		) -> DispatchResultWithPostInfo {
+		) -> DispatchResult {
 			let who = ensure_signed(origin)?;
 		
 			ensure!(WorkerAccounts::<T>::iter().next().is_some(), Error::<T>::NoWorkersAvailable);
@@ -326,7 +324,7 @@ pub mod pallet {
 				task_id, 
 				task: task_data,
 			});
-			Ok(().into())
+			Ok(())
 		}
 		
 		#[pallet::call_index(3)]
@@ -358,7 +356,7 @@ pub mod pallet {
 			// let mut item = WorkerClusters::<T>::get(worker_index);
 
 			// Return a successful DispatchResult
-			Ok(().into())
+			Ok(())
 		}
 	}
 
