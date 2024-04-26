@@ -139,6 +139,7 @@ pub mod pallet {
 	#[pallet::generate_deposit(pub(super) fn deposit_event)]
 	pub enum Event<T: Config> {
 		WorkerRegistered{ creator: T::AccountId },
+		ConnectionEstablished{ cluster_id: ClusterId }
 	}
 
 	/// Pallet Errors
@@ -147,6 +148,7 @@ pub mod pallet {
 		WorkerRegisterMissingIp,
 		WorkerRegisterMissingPort,
 		ClusterExists,
+		WorkerClusterNotRegistered,
 	}
 
 	// The pallet's hooks for offchain worker
@@ -269,6 +271,38 @@ pub mod pallet {
 	
 			Ok(().into())
 		}
+
+		#[pallet::call_index(2)]
+		#[pallet::weight({0})]
+		/// Submit updates worker cluster status and information from successful connection.
+		pub fn verify_connection(origin: OriginFor<T>, worker_index: ClusterId, response: String) -> DispatchResult {
+			// Retrieve the signer and check it is valid.
+			let who = ensure_signed(origin)?;
+			// ensure!(Error::<T>::WorkerClusterNotRegistered{ cluster_id: worker_index })
+
+
+
+			// WorkerClusters::<T>::try_mutate(worker_index |token_info| -> DispatchResult {
+			// 	let cluster_info = token_info.as_mut().ok_or(Error::<T>::WorkerClusterNotRegistered)?;
+			// 	// TODO: update this once response format finalizes, then extract value to item.response
+			// 	// item = response // formated response about the cluster's config info
+			// 	let dummy_value = 1;
+			// 	token_info.status = dummy_value;
+
+			// 	// update worker's info
+			// 	WorkerClusters::<T>::insert(worker_index, token_info);
+
+			// 	// Emit an event.
+			// 	Self::deposit_event(Event::ConnectionEstablished { cluster_id: worker_index });
+			// 	Ok(())
+			// });
+
+
+			// let mut item = WorkerClusters::<T>::get(worker_index);
+
+			// Return a successful DispatchResult
+			Ok(().into())
+		}
 	}
 
 	impl<T: Config> Pallet<T> {
@@ -343,6 +377,14 @@ pub mod pallet {
 				_ => Ok(response),
 			}
 		}
+
+		// fn confirm_task_completion(ip: Ip, port: u32) -> Result<String, http::Error> {
+		// 	// fetch existing tasks
+		// 	// if task is pending, call remote http url to fetch job status
+		// 	// if complete or error, update job status
+		// 	// default: if exceed an interval set job status to failed
+		// }
 		
 	}
+	
 }
