@@ -41,6 +41,19 @@ use sp_std::str;
 pub type ClusterId = u64;
 pub type TaskId = u32;
 
+enum WorkerStatusType {
+	Active,
+	Pending,
+	Completed,
+	Inactive,
+}
+
+enum TaskStatusType {
+	Pending,
+	Completed,
+	Expired,
+}
+
 #[derive(Default, PartialEq, Eq, Clone, RuntimeDebug, Encode, Decode, TypeInfo)]
 pub struct Ip {
 	pub ipv4: Option<Vec<u32>>,
@@ -205,33 +218,32 @@ pub mod pallet {
 							log::error!("fetch_response error: {:?}", e);
 							"Failed".into()
 						});
-						log::info!("Response: {}", response);
-						// use response to submit info to blockchain about cluster
-			
+						log::info!("Response: {}", response.clone());
+						// Use response to submit info to blockchain about cluster
+
+						// Using `send_signed_transaction` associated type we create and submit a transaction
+						// representing the call, we've just created.
+						// Submit signed will return a vector of results for all accounts that were found in the
+						// local keystore with expected `KEY_TYPE`.
+						let results = signer.send_signed_transaction(|_account| {
+							// Received price is wrapped into a call to `submit_price` public function of this
+							// pallet. This means that the transaction, when executed, will simply call that
+							// function passing `price` as an argument.
+							Call::verify_connection { worker_index: data.1, response: response.clone() }
+						});
+
+						for (acc, res) in &results {
+							match res {
+								Ok(()) => log::info!("[{:?}] Submitted cluster info for cluder id {}", acc.id, data.1),
+								Err(e) => log::error!("[{:?}] Failed to submit transaction: {:?}", acc.id, e),
+							}
+						}
 					} else {
-						log::info!("no retrieved.");
+						log::info!("no cluster retrieved.");
 				};
 			} else {
 				log::info!("no off-chain indexing data retrieved.");
 			}
-
-
-			// This will send both signed and unsigned transactions
-			// depending on the block number.
-			// Usually it's enough to choose one or the other.
-			// let should_send = Self::choose_transaction_type(block_number);
-			// let res = match should_send {
-			// 	TransactionType::Signed => Self::fetch_response_and_send_signed(),
-			// 	TransactionType::UnsignedForAny =>
-			// 		Self::fetch_response_and_send_unsigned_for_any_account(block_number),
-			// 	TransactionType::UnsignedForAll =>
-			// 		Self::fetch_response_and_send_unsigned_for_all_accounts(block_number),
-			// 	TransactionType::Raw => Self::fetch_response_and_send_raw_unsigned(block_number),
-			// 	TransactionType::None => Ok(()),
-			// };
-			// if let Err(e) = res {
-			// 	log::error!("Error: {}", e);
-			// }
 		}
 	}
 
@@ -333,28 +345,22 @@ pub mod pallet {
 		pub fn verify_connection(origin: OriginFor<T>, worker_index: ClusterId, response: String) -> DispatchResult {
 			// Retrieve the signer and check it is valid.
 			let who = ensure_signed(origin)?;
-			// ensure!(Error::<T>::WorkerClusterNotRegistered{ cluster_id: worker_index })
+			// ensure!(WorkerClusters::<T>::get(worker_index).is_some(), Error::<T>::WorkerClusterNotRegistered);
 
+			WorkerClusters::<T>::try_mutate(worker_index, |token_info| -> DispatchResult {
+				let cluster_info = token_info.as_mut().ok_or(Error::<T>::WorkerClusterNotRegistered)?;
+				// TODO: update this once response format finalizes, then extract value to item.response
+				// item = response // formated response about the cluster's config info
+				let dummy_value = 1;
+				cluster_info.status = dummy_value;
 
+				// update worker's info
+				WorkerClusters::<T>::insert(worker_index, cluster_info);
 
-			// WorkerClusters::<T>::try_mutate(worker_index |token_info| -> DispatchResult {
-			// 	let cluster_info = token_info.as_mut().ok_or(Error::<T>::WorkerClusterNotRegistered)?;
-			// 	// TODO: update this once response format finalizes, then extract value to item.response
-			// 	// item = response // formated response about the cluster's config info
-			// 	let dummy_value = 1;
-			// 	token_info.status = dummy_value;
-
-			// 	// update worker's info
-			// 	WorkerClusters::<T>::insert(worker_index, token_info);
-
-			// 	// Emit an event.
-			// 	Self::deposit_event(Event::ConnectionEstablished { cluster_id: worker_index });
-			// 	Ok(())
-			// });
-
-
-			// let mut item = WorkerClusters::<T>::get(worker_index);
-
+				// Emit an event.
+				Self::deposit_event(Event::ConnectionEstablished { cluster_id: worker_index });
+				Ok(())
+			})?;
 			// Return a successful DispatchResult
 			Ok(())
 		}
