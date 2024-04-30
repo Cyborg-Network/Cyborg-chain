@@ -39,16 +39,18 @@ use serde::{Deserialize, Deserializer};
 use sp_std::str;
 
 pub type ClusterId = u64;
-pub type TaskId = u32;
+pub type TaskId = u64;
 
-enum WorkerStatusType {
+#[derive(PartialEq, Eq, Clone, Decode, Encode, TypeInfo, Debug)]
+pub enum WorkerStatusType {
 	Active,
 	Pending,
 	Completed,
 	Inactive,
 }
 
-enum TaskStatusType {
+#[derive(PartialEq, Eq, Clone, Decode, Encode, TypeInfo, Debug)]
+pub enum TaskStatusType {
 	Pending,
 	Completed,
 	Expired,
@@ -69,6 +71,15 @@ pub struct Worker<AccountId, BlockNumber> {
 	pub ip: Ip,
 	pub port: u32,
 	pub status: u8,
+}
+
+
+#[derive(PartialEq, Eq, Clone, RuntimeDebug, Encode, Decode, TypeInfo)]
+pub struct TaskInfo<AccountId, BlockNumber> {
+	pub task_owner: AccountId,
+	pub create_block: BlockNumber,
+	pub metadata: Vec<u8>,
+	pub assigned_worker: ClusterId,
 }
 
 pub const KEY_TYPE: KeyTypeId = KeyTypeId(*b"ping");
@@ -145,6 +156,9 @@ pub mod pallet {
 	pub type WorkerAccounts<T: Config> = 
 		StorageMap<_, Identity, T::AccountId, ClusterId, OptionQuery>;
 
+	#[pallet::storage]
+    #[pallet::getter(fn task_status)]
+    pub type TaskStatus<T: Config> = StorageMap<_, Twox64Concat, TaskId, TaskStatusType, OptionQuery>;
 	
 	#[pallet::storage]
     #[pallet::getter(fn task_allocations)]
@@ -158,7 +172,13 @@ pub mod pallet {
     #[pallet::getter(fn next_task_id)]
     pub type NextTaskId<T: Config> = StorageValue<_, TaskId, ValueQuery>;
 
-	// /// Worker Cluster information
+	/// Task Information
+	#[pallet::storage]
+	#[pallet::getter(fn get_tasks)]
+	pub type Tasks<T: Config> = 
+		StorageMap<_, Identity, TaskId, TaskInfo<T::AccountId, BlockNumberFor<T>>, OptionQuery>;
+
+	/// Worker Cluster information
 	#[pallet::storage]
 	#[pallet::getter(fn get_worker_clusters)]
 	pub type WorkerClusters<T: Config> = 
@@ -174,7 +194,9 @@ pub mod pallet {
             task_id: TaskId,
             task: String,
         },
-		ConnectionEstablished{ cluster_id: ClusterId }
+		ConnectionEstablished{ cluster_id: ClusterId },
+		SubmittedCompletedTask{ task_id: TaskId },
+		VerifiedCompletedTask{ task_id: TaskId },
 	}
 
 	/// Pallet Errors
@@ -185,6 +207,9 @@ pub mod pallet {
 		ClusterExists,
 		NoWorkersAvailable,
 		WorkerClusterNotRegistered,
+		UnassignedTaskId,
+		InvalidTaskOwner,
+		RequirePendingTask,
 	}
 
 	// The pallet's hooks for offchain worker
@@ -193,7 +218,7 @@ pub mod pallet {
 		fn offchain_worker(block_number: BlockNumberFor<T>) {
 			log::info!("Hello from offchain workers!");
 
-			let signer = Signer::<T, T::AuthorityId>::all_accounts();
+			let signer = Signer::<T, T::AuthorityId>::any_account();
 			if !signer.can_sign() {
 				log::error!("No local accounts available");
 				return
@@ -204,12 +229,12 @@ pub mod pallet {
 			log::debug!("Current block: {:?} (parent hash: {:?})", block_number, parent_hash);
 
 			// Reading back the off-chain indexing value. It is exactly the same as reading from
-			// ocw local storage.
-			let key = Self::derived_key(block_number);
-			let oci_mem = StorageValueRef::persistent(&key);
+			// ocw local storage for any pings to cluster.
+			let ping_key = Self::derived_key(block_number, "ping");
+			let oci_mem_ping = StorageValueRef::persistent(&ping_key);
 
-			if let Ok(Some(data)) = oci_mem.get::<IndexingData>() {
-				log::info!("off-chain indexing data: {:?}, {:?}",
+			if let Ok(Some(data)) = oci_mem_ping.get::<IndexingData>() {
+				log::info!("off-chain indexing cluster status data: {:?}, {:?}",
 					str::from_utf8(&data.0).unwrap_or("error"), data.1);
 					if let Some(cluster) = Self::get_worker_clusters(data.1){
 						log::info!("cluster info: {:?}", cluster);
@@ -242,15 +267,60 @@ pub mod pallet {
 						log::info!("no cluster retrieved.");
 				};
 			} else {
+				log::info!("no off-chain indexing data retrieved for cluster pings.");
+			}
+
+			// Reading back the off-chain indexing value.
+			// ocw local storage for task completed verifications.
+			let task_key = Self::derived_key(block_number, "task");
+			let oci_mem_task = StorageValueRef::persistent(&task_key);
+
+			if let Ok(Some(data)) = oci_mem_task.get::<IndexingData>() {
+				log::info!("off-chain indexing task data: {:?}, {:?}",
+					str::from_utf8(&data.0).unwrap_or("error"), data.1);
+					if let Some(task) = Self::get_tasks(data.1){
+						log::info!("task info: {:?}", task);
+						if let Some(cluster) = Self::get_worker_clusters(task.assigned_worker) {
+
+							let response: String = Self::confirm_task_completion(cluster.ip, cluster.port).unwrap_or_else(|e| {
+								log::error!("fetch_response error: {:?}", e);
+								"Failed".into()
+							});
+							log::info!("Response: {}", response.clone());
+							// Use response to submit info to blockchain about cluster
+	
+							// Using `send_signed_transaction` associated type we create and submit a transaction
+							// representing the call, we've just created.
+							// Submit signed will return a vector of results for all accounts that were found in the
+							// local keystore with expected `KEY_TYPE`.
+							let results = signer.send_signed_transaction(|_account| {
+								// Received price is wrapped into a call to `submit_price` public function of this
+								// pallet. This means that the transaction, when executed, will simply call that
+								// function passing `price` as an argument.
+								Call::verify_completed_task { task_id: data.1, response: response.clone() } //TODO
+							});
+	
+							for (acc, res) in &results {
+								match res {
+									Ok(()) => log::info!("[{:?}] Submitted cluster info for cluder id {}", acc.id, data.1),
+									Err(e) => log::error!("[{:?}] Failed to submit transaction: {:?}", acc.id, e),
+								}
+							}
+						};
+					} else {
+						log::info!("no cluster retrieved.");
+				};
+			} else {
 				log::info!("no off-chain indexing data retrieved.");
 			}
+
 		}
 	}
 
 	#[pallet::call]
 	impl<T:Config> Pallet<T> {
 		/// Worker cluster registration
-		#[pallet::call_index(1)]
+		#[pallet::call_index(0)]
 		#[pallet::weight(10_000 + T::DbWeight::get().writes(1).ref_time())]
 		pub fn worker_register(
 			origin: OriginFor<T>,
@@ -297,8 +367,8 @@ pub mod pallet {
 			// The value is written in byte form, so we need to encode/decode it when writting/reading
 			// a number to/from this memory space.
 			
-			let key = Self::derived_key(frame_system::Pallet::<T>::block_number());
-			let data: IndexingData = IndexingData(b"submit_number_signed".to_vec(), cid);
+			let key = Self::derived_key(frame_system::Pallet::<T>::block_number(), "ping");
+			let data: IndexingData = IndexingData(b"registered_cluster_ping".to_vec(), cid);
 			offchain_index::set(&key, &data.encode());
 
 			// Emit an event.
@@ -307,7 +377,7 @@ pub mod pallet {
 			Ok(())
 		}
 
-		#[pallet::call_index(2)]
+		#[pallet::call_index(1)]
 		#[pallet::weight(10_000 + T::DbWeight::get().writes(1).ref_time())]
 		pub fn task_scheduler(
 			origin: OriginFor<T>,
@@ -325,9 +395,19 @@ pub mod pallet {
 			let random_index = (sp_io::hashing::blake2_256(&task_data.as_bytes())[0] as usize) % workers.len();
 			let selected_worker = workers[random_index].0.clone();
 		
+			let cluster_id = Self::get_worker_accounts(selected_worker.clone()).ok_or(Error::<T>::WorkerClusterNotRegistered)?;
+			let task_info = TaskInfo {
+				task_owner: who.clone(),
+				create_block: <frame_system::Pallet<T>>::block_number(),
+				metadata: task_data.clone().as_bytes().to_vec(),
+				assigned_worker: cluster_id,
+			};
+
 			// Assign task to worker and set task owner.
 			TaskAllocations::<T>::insert(task_id, selected_worker.clone());
 			TaskOwners::<T>::insert(task_id, who.clone());
+			Tasks::<T>::insert(task_id, task_info);
+			TaskStatus::<T>::insert(task_id, TaskStatusType::Pending);
 		
 			// Emit an event.
 			Self::deposit_event(Event::TaskScheduled {
@@ -339,16 +419,15 @@ pub mod pallet {
 			Ok(())
 		}
 		
-		#[pallet::call_index(3)]
+		#[pallet::call_index(2)]
 		#[pallet::weight({0})]
 		/// Submit updates worker cluster status and information from successful connection.
 		pub fn verify_connection(origin: OriginFor<T>, worker_index: ClusterId, response: String) -> DispatchResult {
 			// Retrieve the signer and check it is valid.
 			let who = ensure_signed(origin)?;
-			// ensure!(WorkerClusters::<T>::get(worker_index).is_some(), Error::<T>::WorkerClusterNotRegistered);
 
-			WorkerClusters::<T>::try_mutate(worker_index, |token_info| -> DispatchResult {
-				let cluster_info = token_info.as_mut().ok_or(Error::<T>::WorkerClusterNotRegistered)?;
+			WorkerClusters::<T>::try_mutate(worker_index, |worker| -> DispatchResult {
+				let cluster_info = worker.as_mut().ok_or(Error::<T>::WorkerClusterNotRegistered)?;
 				// TODO: update this once response format finalizes, then extract value to item.response
 				// item = response // formated response about the cluster's config info
 				let dummy_value = 1;
@@ -364,22 +443,68 @@ pub mod pallet {
 			// Return a successful DispatchResult
 			Ok(())
 		}
+		#[pallet::call_index(3)]
+		#[pallet::weight({0})]
+		/// Submit completed task
+		pub fn submit_completed_task(
+			origin: OriginFor<T>,
+			task_id: TaskId,
+		) -> DispatchResult
+		{
+			let who = ensure_signed(origin)?;
+			let task_owner = TaskOwners::<T>::get(task_id).ok_or(Error::<T>::UnassignedTaskId)?;
+			ensure!(task_owner == who, Error::<T>::InvalidTaskOwner);
+			ensure!(TaskStatus::<T>::get(task_id) == Some(TaskStatusType::Pending), Error::<T>::RequirePendingTask);
+
+			let key = Self::derived_key(frame_system::Pallet::<T>::block_number(), "task");
+			let data: IndexingData = IndexingData(b"scheduled_task".to_vec(), task_id.into());
+			offchain_index::set(&key, &data.encode());
+			// Emit an event.
+			Self::deposit_event(Event::SubmittedCompletedTask { task_id });
+			Ok(())
+		} 
+
+		//TODO: complete implementation
+		#[pallet::call_index(4)]
+		#[pallet::weight({0})]
+		/// Submit completed task
+		pub fn verify_completed_task(
+			origin: OriginFor<T>,
+			task_id: TaskId,
+			response: String,
+		) -> DispatchResult
+		{
+			let who = ensure_signed(origin)?;
+			let task_owner = TaskOwners::<T>::get(task_id).ok_or(Error::<T>::UnassignedTaskId)?;
+			// ensure!(task_owner == who, Error::<T>::InvalidTaskOwner);
+
+			ensure!(TaskStatus::<T>::get(task_id) == Some(TaskStatusType::Pending), Error::<T>::RequirePendingTask);
+			TaskStatus::<T>::insert(task_id, TaskStatusType::Completed);
+
+			// Emit an event.
+			Self::deposit_event(Event::VerifiedCompletedTask { task_id });
+			Ok(())
+		} 
 	}
 
 	impl<T: Config> Pallet<T> {
 		#[deny(clippy::clone_double_ref)]
-		fn derived_key(block_number: BlockNumberFor<T>) -> Vec<u8> {
+		fn derived_key(block_number: BlockNumberFor<T>, extend: &str) -> Vec<u8> {
 			block_number.using_encoded(|encoded_bn| {
 				ONCHAIN_TX_KEY
 					.iter()
 					.chain(b"/".iter())
 					.chain(encoded_bn)
+					.chain(extend.as_bytes().to_vec().iter())
 					.copied()
 					.collect::<Vec<u8>>()
 			})
 		}
 		/// Fetches the current cluster status response from remote URL and returns it as a string.
 		fn fetch_cluster_status(ip: Ip, port: u32) -> Result<String, http::Error> {
+			Self::http_call(ip, port, "status")
+		}
+		fn http_call(ip: Ip, port: u32, route: &str) -> Result<String, http::Error> {
 			// We want to keep the offchain worker execution time reasonable, so we set a hard-coded
 			// deadline to 3s to complete the external call.
 			// You can also wait idefinitely for the response, however you may still get a timeout
@@ -398,7 +523,7 @@ pub mod pallet {
 				}
 			};
 			
-			let url = format!("http://{}:{}/status", string_ip, port);
+			let url = format!("http://{}:{}/{}", string_ip, port, route);
 			let request = http::Request::get(&url);
 			// We set the deadline for sending of the request, note that awaiting response can
 			// have a separate deadline. Next we send the request, before that it's also possible
@@ -438,13 +563,13 @@ pub mod pallet {
 				_ => Ok(response),
 			}
 		}
-
-		// fn confirm_task_completion(ip: Ip, port: u32) -> Result<String, http::Error> {
-		// 	// fetch existing tasks
-		// 	// if task is pending, call remote http url to fetch job status
-		// 	// if complete or error, update job status
-		// 	// default: if exceed an interval set job status to failed
-		// }
+		fn confirm_task_completion(ip: Ip, port: u32) -> Result<String, http::Error> {
+			// fetch existing tasks
+			Self::http_call(ip, port, "task")
+			// if task is pending, call remote http url to fetch job status
+			// if complete or error, update job status
+			// default: if exceed an interval set job status to failed
+		}
 		
 	}
 	
