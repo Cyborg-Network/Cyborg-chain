@@ -56,6 +56,11 @@ pub enum TaskStatusType {
 	Expired,
 }
 
+#[derive(PartialEq, Eq, Clone, Decode, Encode, TypeInfo, Debug)]
+pub enum TaskType {
+	Docker,
+}
+
 #[derive(Default, PartialEq, Eq, Clone, RuntimeDebug, Encode, Decode, TypeInfo)]
 pub struct Ip {
 	pub ipv4: Option<Vec<u32>>,
@@ -80,6 +85,10 @@ pub struct TaskInfo<AccountId, BlockNumber> {
 	pub create_block: BlockNumber,
 	pub metadata: Vec<u8>,
 	pub assigned_worker: ClusterId,
+	pub time_elapsed: Option<BlockNumber>,
+	pub average_cpu_percentage_use: Option<u8>,
+	pub task_type: TaskType,
+	// pub completed_hash: Option<Hash>
 }
 
 pub const KEY_TYPE: KeyTypeId = KeyTypeId(*b"ping");
@@ -193,6 +202,7 @@ pub mod pallet {
 			owner: T::AccountId,
             task_id: TaskId,
             task: String,
+			assigned_ip: String,
         },
 		ConnectionEstablished{ cluster_id: ClusterId },
 		SubmittedCompletedTask{ task_id: TaskId },
@@ -243,6 +253,13 @@ pub mod pallet {
 							log::error!("fetch_response error: {:?}", e);
 							"Failed".into()
 						});
+
+						// assign cluster_id to cluster
+						// let response: String = Self::asssign_cluster_id(cluster.ip, cluster.port).unwrap_or_else(|e| {
+						// 	log::error!("fetch_response error: {:?}", e);
+						// 	"Failed".into()
+						// });
+
 						log::info!("Response: {}", response.clone());
 						// Use response to submit info to blockchain about cluster
 
@@ -270,49 +287,49 @@ pub mod pallet {
 				log::info!("no off-chain indexing data retrieved for cluster pings.");
 			}
 
-			// Reading back the off-chain indexing value.
-			// ocw local storage for task completed verifications.
-			let task_key = Self::derived_key(block_number, "task");
-			let oci_mem_task = StorageValueRef::persistent(&task_key);
+			// // Reading back the off-chain indexing value.
+			// // ocw local storage for task completed verifications.
+			// let task_key = Self::derived_key(block_number, "task");
+			// let oci_mem_task = StorageValueRef::persistent(&task_key);
 
-			if let Ok(Some(data)) = oci_mem_task.get::<IndexingData>() {
-				log::info!("off-chain indexing task data: {:?}, {:?}",
-					str::from_utf8(&data.0).unwrap_or("error"), data.1);
-					if let Some(task) = Self::get_tasks(data.1){
-						log::info!("task info: {:?}", task);
-						if let Some(cluster) = Self::get_worker_clusters(task.assigned_worker) {
+			// if let Ok(Some(data)) = oci_mem_task.get::<IndexingData>() {
+			// 	log::info!("off-chain indexing task data: {:?}, {:?}",
+			// 		str::from_utf8(&data.0).unwrap_or("error"), data.1);
+			// 		if let Some(task) = Self::get_tasks(data.1){
+			// 			log::info!("task info: {:?}", task);
+			// 			if let Some(cluster) = Self::get_worker_clusters(task.assigned_worker) {
 
-							let response: String = Self::confirm_task_completion(cluster.ip, cluster.port).unwrap_or_else(|e| {
-								log::error!("fetch_response error: {:?}", e);
-								"Failed".into()
-							});
-							log::info!("Response: {}", response.clone());
-							// Use response to submit info to blockchain about cluster
+			// 				let response: String = Self::confirm_task_completion(cluster.ip, cluster.port).unwrap_or_else(|e| {
+			// 					log::error!("fetch_response error: {:?}", e);
+			// 					"Failed".into()
+			// 				});
+			// 				log::info!("Response: {}", response.clone());
+			// 				// Use response to submit info to blockchain about cluster
 	
-							// Using `send_signed_transaction` associated type we create and submit a transaction
-							// representing the call, we've just created.
-							// Submit signed will return a vector of results for all accounts that were found in the
-							// local keystore with expected `KEY_TYPE`.
-							let results = signer.send_signed_transaction(|_account| {
-								// Received price is wrapped into a call to `submit_price` public function of this
-								// pallet. This means that the transaction, when executed, will simply call that
-								// function passing `price` as an argument.
-								Call::verify_completed_task { task_id: data.1, response: response.clone() } //TODO
-							});
+			// 				// Using `send_signed_transaction` associated type we create and submit a transaction
+			// 				// representing the call, we've just created.
+			// 				// Submit signed will return a vector of results for all accounts that were found in the
+			// 				// local keystore with expected `KEY_TYPE`.
+			// 				let results = signer.send_signed_transaction(|_account| {
+			// 					// Received price is wrapped into a call to `submit_price` public function of this
+			// 					// pallet. This means that the transaction, when executed, will simply call that
+			// 					// function passing `price` as an argument.
+			// 					Call::verify_completed_task { task_id: data.1, response: response.clone() } //TODO
+			// 				});
 	
-							for (acc, res) in &results {
-								match res {
-									Ok(()) => log::info!("[{:?}] Submitted cluster info for cluder id {}", acc.id, data.1),
-									Err(e) => log::error!("[{:?}] Failed to submit transaction: {:?}", acc.id, e),
-								}
-							}
-						};
-					} else {
-						log::info!("no cluster retrieved.");
-				};
-			} else {
-				log::info!("no off-chain indexing data retrieved.");
-			}
+			// 				for (acc, res) in &results {
+			// 					match res {
+			// 						Ok(()) => log::info!("[{:?}] Submitted cluster info for cluder id {}", acc.id, data.1),
+			// 						Err(e) => log::error!("[{:?}] Failed to submit transaction: {:?}", acc.id, e),
+			// 					}
+			// 				}
+			// 			};
+			// 		} else {
+			// 			log::info!("no cluster retrieved.");
+			// 	};
+			// } else {
+			// 	log::info!("no off-chain indexing data retrieved.");
+			// }
 
 		}
 	}
@@ -401,7 +418,12 @@ pub mod pallet {
 				create_block: <frame_system::Pallet<T>>::block_number(),
 				metadata: task_data.clone().as_bytes().to_vec(),
 				assigned_worker: cluster_id,
+				time_elapsed: None,
+				average_cpu_percentage_use: None,
+				task_type: TaskType::Docker,
+				// completed_hash: None,
 			};
+
 
 			// Assign task to worker and set task owner.
 			TaskAllocations::<T>::insert(task_id, selected_worker.clone());
@@ -409,12 +431,23 @@ pub mod pallet {
 			Tasks::<T>::insert(task_id, task_info);
 			TaskStatus::<T>::insert(task_id, TaskStatusType::Pending);
 		
+			let cluster_id = WorkerAccounts::<T>::get(selected_worker.clone()).ok_or(Error::<T>::WorkerClusterNotRegistered)?;
+			let cluster = WorkerClusters::<T>::get(cluster_id).ok_or(Error::<T>::WorkerClusterNotRegistered)?;
+
+			let string_ip = match cluster.ip {
+				Ip { ipv4: Some(i), ..}  => i.iter().map(|n| n.to_string()).collect::<Vec<_>>().join("."),
+				Ip { ipv6: Some(i), .. }  => i.iter().map(|n| n.to_string()).collect::<Vec<_>>().join(":"),
+				_=> {
+					format!("localhost")
+				}
+			};
 			// Emit an event.
 			Self::deposit_event(Event::TaskScheduled {
 				worker: selected_worker,
 				owner: who,
 				task_id, 
 				task: task_data,
+				assigned_ip: string_ip,
 			});
 			Ok(())
 		}
@@ -443,48 +476,49 @@ pub mod pallet {
 			// Return a successful DispatchResult
 			Ok(())
 		}
-		#[pallet::call_index(3)]
-		#[pallet::weight({0})]
-		/// Submit completed task
-		pub fn submit_completed_task(
-			origin: OriginFor<T>,
-			task_id: TaskId,
-		) -> DispatchResult
-		{
-			let who = ensure_signed(origin)?;
-			let task_owner = TaskOwners::<T>::get(task_id).ok_or(Error::<T>::UnassignedTaskId)?;
-			ensure!(task_owner == who, Error::<T>::InvalidTaskOwner);
-			ensure!(TaskStatus::<T>::get(task_id) == Some(TaskStatusType::Pending), Error::<T>::RequirePendingTask);
+		// //TODO: update implementation
+		// #[pallet::call_index(3)]
+		// #[pallet::weight({0})]
+		// /// Submit completed task
+		// pub fn submit_completed_task(
+		// 	origin: OriginFor<T>,
+		// 	task_id: TaskId,
+		// ) -> DispatchResult
+		// {
+		// 	let who = ensure_signed(origin)?;
+		// 	let task_owner = TaskOwners::<T>::get(task_id).ok_or(Error::<T>::UnassignedTaskId)?;
+		// 	ensure!(task_owner == who, Error::<T>::InvalidTaskOwner);
+		// 	ensure!(TaskStatus::<T>::get(task_id) == Some(TaskStatusType::Pending), Error::<T>::RequirePendingTask);
 
-			let key = Self::derived_key(frame_system::Pallet::<T>::block_number(), "task");
-			let data: IndexingData = IndexingData(b"scheduled_task".to_vec(), task_id.into());
-			offchain_index::set(&key, &data.encode());
-			// Emit an event.
-			Self::deposit_event(Event::SubmittedCompletedTask { task_id });
-			Ok(())
-		} 
+		// 	let key = Self::derived_key(frame_system::Pallet::<T>::block_number(), "task");
+		// 	let data: IndexingData = IndexingData(b"scheduled_task".to_vec(), task_id.into());
+		// 	offchain_index::set(&key, &data.encode());
+		// 	// Emit an event.
+		// 	Self::deposit_event(Event::SubmittedCompletedTask { task_id });
+		// 	Ok(())
+		// } 
 
-		//TODO: complete implementation
-		#[pallet::call_index(4)]
-		#[pallet::weight({0})]
-		/// Submit completed task
-		pub fn verify_completed_task(
-			origin: OriginFor<T>,
-			task_id: TaskId,
-			response: String,
-		) -> DispatchResult
-		{
-			let who = ensure_signed(origin)?;
-			let task_owner = TaskOwners::<T>::get(task_id).ok_or(Error::<T>::UnassignedTaskId)?;
-			// ensure!(task_owner == who, Error::<T>::InvalidTaskOwner);
+		// //TODO: update implementation
+		// #[pallet::call_index(4)]
+		// #[pallet::weight({0})]
+		// /// Submit completed task
+		// pub fn verify_completed_task(
+		// 	origin: OriginFor<T>,
+		// 	task_id: TaskId,
+		// 	response: String,
+		// ) -> DispatchResult
+		// {
+		// 	let who = ensure_signed(origin)?;
+		// 	let task_owner = TaskOwners::<T>::get(task_id).ok_or(Error::<T>::UnassignedTaskId)?;
+		// 	// ensure!(task_owner == who, Error::<T>::InvalidTaskOwner);
 
-			ensure!(TaskStatus::<T>::get(task_id) == Some(TaskStatusType::Pending), Error::<T>::RequirePendingTask);
-			TaskStatus::<T>::insert(task_id, TaskStatusType::Completed);
+		// 	ensure!(TaskStatus::<T>::get(task_id) == Some(TaskStatusType::Pending), Error::<T>::RequirePendingTask);
+		// 	TaskStatus::<T>::insert(task_id, TaskStatusType::Completed);
 
-			// Emit an event.
-			Self::deposit_event(Event::VerifiedCompletedTask { task_id });
-			Ok(())
-		} 
+		// 	// Emit an event.
+		// 	Self::deposit_event(Event::VerifiedCompletedTask { task_id });
+		// 	Ok(())
+		// } 
 	}
 
 	impl<T: Config> Pallet<T> {
@@ -502,7 +536,7 @@ pub mod pallet {
 		}
 		/// Fetches the current cluster status response from remote URL and returns it as a string.
 		fn fetch_cluster_status(ip: Ip, port: u32) -> Result<String, http::Error> {
-			Self::http_call(ip, port, "status")
+			Self::http_call(ip, port, "deployment-status")
 		}
 		fn http_call(ip: Ip, port: u32, route: &str) -> Result<String, http::Error> {
 			// We want to keep the offchain worker execution time reasonable, so we set a hard-coded
@@ -563,14 +597,13 @@ pub mod pallet {
 				_ => Ok(response),
 			}
 		}
-		fn confirm_task_completion(ip: Ip, port: u32) -> Result<String, http::Error> {
-			// fetch existing tasks
-			Self::http_call(ip, port, "task")
-			// if task is pending, call remote http url to fetch job status
-			// if complete or error, update job status
-			// default: if exceed an interval set job status to failed
-		}
-		
+		// fn confirm_task_completion(ip: Ip, port: u32) -> Result<String, http::Error> {
+		// 	// fetch existing tasks
+		// 	Self::http_call(ip, port, "task")
+		// 	// if task is pending, call remote http url to fetch job status
+		// 	// if complete or error, update job status
+		// 	// default: if exceed an interval set job status to failed
+		// }
 	}
 	
 }
