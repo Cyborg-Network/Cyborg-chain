@@ -193,7 +193,7 @@ pub fn new_full(config: Configuration) -> Result<TaskManager, ServiceError> {
 			block_announce_validator_builder: None,
 			warp_sync_params: Some(WarpSyncParams::WithProvider(warp_sync)),
 		})?;
-
+	let keystore = keystore_container.keystore();
 	if config.offchain_worker.enabled {
 		task_manager.spawn_handle().spawn(
 			"offchain-workers-runner",
@@ -213,6 +213,18 @@ pub fn new_full(config: Configuration) -> Result<TaskManager, ServiceError> {
 				.run(client.clone(), task_manager.spawn_handle())
 				.boxed(),
 		);
+		// Initialize seed for signing transaction using off-chain workers. This is a convenience
+		// so learners can see the transactions submitted simply running the node.
+		// Typically these keys should be inserted with RPC calls to `author_insertKey`.
+		#[cfg(feature = "ocw")]
+		{
+		sp_keystore::Keystore::sr25519_generate_new(
+			&*keystore,
+			cyborg_runtime::pallet_worker_registration::KEY_TYPE,
+			Some("//Charlie"),
+		)
+		.expect("Creating key with account Alice should succeed.");
+		}
 	}
 
 	let role = config.role.clone();

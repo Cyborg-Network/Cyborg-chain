@@ -75,7 +75,7 @@ pub struct Worker<AccountId, BlockNumber> {
 	pub name: Vec<u8>,
 	pub ip: Ip,
 	pub port: u32,
-	pub status: u8,
+	pub status: bool,
 }
 
 
@@ -128,6 +128,12 @@ struct IndexingData(Vec<u8>, u64);
 // Re-export pallet items so that they can be accessed from the crate namespace.
 pub use pallet::*;
 
+// Http response from verifying a cluster
+#[derive(Debug, Deserialize)]
+struct VerifyClusterJSONResponse {
+    deployment_status: bool,
+}
+
 #[frame_support::pallet]
 pub mod pallet {
 	use super::*;
@@ -150,7 +156,7 @@ pub mod pallet {
 
 	#[pallet::type_value]
     pub fn DefaultForm1() -> ClusterId {
-        1
+        0
     }
 
 	/// Id of the next cluster of worker to be registered
@@ -226,32 +232,36 @@ pub mod pallet {
 	#[pallet::hooks]
 	impl<T: Config> Hooks<BlockNumberFor<T>> for Pallet<T> {
 		fn offchain_worker(block_number: BlockNumberFor<T>) {
-			log::info!("Hello from offchain workers!");
+			log::info!("From: Worker Registration Pallet offchain workers.");
 
 			let signer = Signer::<T, T::AuthorityId>::any_account();
 			if !signer.can_sign() {
-				log::error!("No local accounts available");
+				log::error!("Offchain::worker-registration: No local accounts available");
 				return
 			}
 
 			// Import `frame_system` and retrieve a block hash of the parent block.
 			let parent_hash = <system::Pallet<T>>::block_hash(block_number - 1u32.into());
-			log::debug!("Current block: {:?} (parent hash: {:?})", block_number, parent_hash);
+			log::debug!("ffchain::worker-registration: Current block: {:?} (parent hash: {:?})", block_number, parent_hash);
 
 			// Reading back the off-chain indexing value. It is exactly the same as reading from
 			// ocw local storage for any pings to cluster.
 			let ping_key = Self::derived_key(block_number, "ping");
 			let oci_mem_ping = StorageValueRef::persistent(&ping_key);
+			log::info!("Offchain::worker-registration: ping_key info: {:?}", ping_key.clone());
+			log::info!("Offchain::worker-registration: oci_mem_ping info: {:?}", oci_mem_ping.get::<IndexingData>()); 
 
 			if let Ok(Some(data)) = oci_mem_ping.get::<IndexingData>() {
-				log::info!("off-chain indexing cluster status data: {:?}, {:?}",
+				log::info!("Offchain::worker-registration: off-chain indexing cluster status data: {:?}, {:?}",
 					str::from_utf8(&data.0).unwrap_or("error"), data.1);
 					if let Some(cluster) = Self::get_worker_clusters(data.1){
-						log::info!("cluster info: {:?}", cluster);
+						log::info!("Offchain::worker-registration: cluster info: {:?}", cluster);
 
-						let response: String = Self::fetch_cluster_status(cluster.ip, cluster.port).unwrap_or_else(|e| {
-							log::error!("fetch_response error: {:?}", e);
-							"Failed".into()
+						let response: VerifyClusterJSONResponse = Self::fetch_cluster_status(cluster.ip, cluster.port).unwrap_or_else(|e| {
+							log::error!("Offchain::worker-registration: fetch_response error: {:?}", e);
+							VerifyClusterJSONResponse {
+								deployment_status: false,
+							}
 						});
 
 						// assign cluster_id to cluster
@@ -260,7 +270,7 @@ pub mod pallet {
 						// 	"Failed".into()
 						// });
 
-						log::info!("Response: {}", response.clone());
+						log::info!("Offchain::worker-registration: Response: {:?}", response);
 						// Use response to submit info to blockchain about cluster
 
 						// Using `send_signed_transaction` associated type we create and submit a transaction
@@ -271,20 +281,20 @@ pub mod pallet {
 							// Received price is wrapped into a call to `submit_price` public function of this
 							// pallet. This means that the transaction, when executed, will simply call that
 							// function passing `price` as an argument.
-							Call::verify_connection { worker_index: data.1, response: response.clone() }
+							Call::verify_connection { worker_index: data.1, deployment_status: response.deployment_status }
 						});
 
 						for (acc, res) in &results {
 							match res {
-								Ok(()) => log::info!("[{:?}] Submitted cluster info for cluder id {}", acc.id, data.1),
-								Err(e) => log::error!("[{:?}] Failed to submit transaction: {:?}", acc.id, e),
+								Ok(()) => log::info!("Offchain::worker-registration: [{:?}] Submitted cluster info for cluder id {}", acc.id, data.1),
+								Err(e) => log::error!("Offchain::worker-registration: [{:?}] Failed to submit transaction: {:?}", acc.id, e),
 							}
 						}
 					} else {
-						log::info!("no cluster retrieved.");
+						log::info!("Offchain::worker-registration: no cluster retrieved.");
 				};
 			} else {
-				log::info!("no off-chain indexing data retrieved for cluster pings.");
+				log::info!("Offchain::worker-registration: no off-chain indexing data retrieved for cluster pings.");
 			}
 
 			// // Reading back the off-chain indexing value.
@@ -364,7 +374,7 @@ pub mod pallet {
 				name: name.clone(),
 				ip: ip.clone(),
 				port: port.clone(),
-				status: 1,
+				status: false,
 			};
 
 			// update storage
@@ -385,6 +395,8 @@ pub mod pallet {
 			// a number to/from this memory space.
 			
 			let key = Self::derived_key(frame_system::Pallet::<T>::block_number(), "ping");
+			log::info!("Offchain worker key: {:?}", key.clone());
+			
 			let data: IndexingData = IndexingData(b"registered_cluster_ping".to_vec(), cid);
 			offchain_index::set(&key, &data.encode());
 
@@ -455,16 +467,14 @@ pub mod pallet {
 		#[pallet::call_index(2)]
 		#[pallet::weight({0})]
 		/// Submit updates worker cluster status and information from successful connection.
-		pub fn verify_connection(origin: OriginFor<T>, worker_index: ClusterId, response: String) -> DispatchResult {
+		pub fn verify_connection(origin: OriginFor<T>, worker_index: ClusterId, deployment_status: bool) -> DispatchResult {
 			// Retrieve the signer and check it is valid.
 			let who = ensure_signed(origin)?;
 
 			WorkerClusters::<T>::try_mutate(worker_index, |worker| -> DispatchResult {
 				let cluster_info = worker.as_mut().ok_or(Error::<T>::WorkerClusterNotRegistered)?;
-				// TODO: update this once response format finalizes, then extract value to item.response
-				// item = response // formated response about the cluster's config info
-				let dummy_value = 1;
-				cluster_info.status = dummy_value;
+
+				cluster_info.status = deployment_status;
 
 				// update worker's info
 				WorkerClusters::<T>::insert(worker_index, cluster_info);
@@ -529,16 +539,27 @@ pub mod pallet {
 					.iter()
 					.chain(b"/".iter())
 					.chain(encoded_bn)
-					.chain(extend.as_bytes().to_vec().iter())
+					// .chain(extend.as_bytes().to_vec().iter())
 					.copied()
 					.collect::<Vec<u8>>()
 			})
 		}
 		/// Fetches the current cluster status response from remote URL and returns it as a string.
-		fn fetch_cluster_status(ip: Ip, port: u32) -> Result<String, http::Error> {
-			Self::http_call(ip, port, "deployment-status")
+		fn fetch_cluster_status(ip: Ip, port: u32) -> Result<VerifyClusterJSONResponse, http::Error> {
+			let body = Self::http_call(ip, port, "deployment-status")?;
+			match serde_json::from_slice::<VerifyClusterJSONResponse>(&body) {
+				Ok(response) => {
+					log::info!("Deserialized object: {:?}", response);
+					Ok(response)
+				}
+				Err(e) => {
+					log::info!("Failed to deserialize JSON: {}", e);
+					Err(http::Error::Unknown)
+				}
+				_ => {Err(http::Error::Unknown)}
+			}
 		}
-		fn http_call(ip: Ip, port: u32, route: &str) -> Result<String, http::Error> {
+		fn http_call(ip: Ip, port: u32, route: &str) -> Result<Vec<u8>, http::Error> {
 			// We want to keep the offchain worker execution time reasonable, so we set a hard-coded
 			// deadline to 3s to complete the external call.
 			// You can also wait idefinitely for the response, however you may still get a timeout
@@ -594,7 +615,7 @@ pub mod pallet {
 
 			match response.len() {
 				0 => Err(http::Error::Unknown),
-				_ => Ok(response),
+				_ => Ok(body),
 			}
 		}
 		// fn confirm_task_completion(ip: Ip, port: u32) -> Result<String, http::Error> {
