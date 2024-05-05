@@ -7,7 +7,7 @@
 <h2> Decentralized Edge Computing </h2>
 
 <br>
-Official Repository for the Cyborg Network 
+Official Repository for the Cyborg Network Blockchain protocol
 
 <br>
 
