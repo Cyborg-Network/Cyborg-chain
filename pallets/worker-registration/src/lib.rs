@@ -546,7 +546,7 @@ pub mod pallet {
 		}
 		/// Fetches the current cluster status response from remote URL and returns it as a string.
 		fn fetch_cluster_status(ip: Ip, port: u32) -> Result<VerifyClusterJSONResponse, http::Error> {
-			let body = Self::http_call(ip, port, "deployment-status")?;
+			let body = Self::http_call(ip, port, "cluster-status")?;
 			match serde_json::from_slice::<VerifyClusterJSONResponse>(&body) {
 				Ok(response) => {
 					log::info!("Deserialized object: {:?}", response);
