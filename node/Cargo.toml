@@ -73,6 +73,7 @@ substrate-build-script-utils = { workspace = true }
 
 [features]
 default = []
+ocw = []
 # Dependencies that are only required if runtime benchmarking should be build.
 runtime-benchmarks = [
 	"cyborg-runtime/runtime-benchmarks",
