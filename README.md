@@ -34,12 +34,12 @@ Use the following command to build the node without launching it:
 
 Compile the code
 ```sh
-cargo build --release
+cargo build --release --features ocw
 ```
 
 Execute the off chain worker module
 ```sh
-./target/release/cyborg-node --dev --offchain-worker always
+./target/release/cyborg-node --dev -enable-offchain-indexing=true
 ```
 
 ### Connect with Polkadot-JS Apps Front-End
