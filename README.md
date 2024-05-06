@@ -39,7 +39,7 @@ cargo build --release --features ocw
 
 Execute the off chain worker module
 ```sh
-./target/release/cyborg-node --dev -enable-offchain-indexing=true
+./target/release/cyborg-node --dev --enable-offchain-indexing=true
 ```
 
 ### Connect with Polkadot-JS Apps Front-End
