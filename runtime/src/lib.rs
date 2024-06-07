@@ -59,6 +59,7 @@ pub use sp_runtime::{Perbill, Permill};
 
 pub use pallet_edge_connect;
 pub use pallet_worker_registration;
+pub use pallet_faucet;
 
 /// An index to a block.
 pub type BlockNumber = u32;
@@ -411,6 +412,28 @@ impl pallet_worker_registration::Config for Runtime {
 	type WeightInfo = ();
 	type AuthorityId = pallet_worker_registration::crypto::ClusterStatusAuthId;
 }
+
+parameter_types! {
+    // Example configuration values.
+    // Note: UNITS & DAYS constants might not be defined in your runtime.
+    // 
+    // The amount of token that "drips" from the faucet for every claim.
+	pub const FaucetDripAmount: Balance = 1000 * UNIT;
+    // The minimum period, as a number of blocks, between consecutive claims of a given account.
+	pub const MinBlocksBetweenClaims: BlockNumber = 1 * DAYS;
+    // The maximum number of times an account can claim tokens from the faucet.
+	pub const MaxClaimsPerAccount: u32 = 3;
+}
+
+impl pallet_faucet::Config for Runtime {
+	type Currency = Balances;
+	type DripAmount = FaucetDripAmount;
+	type RuntimeEvent = RuntimeEvent;
+	type MaxClaimsPerAccount = MaxClaimsPerAccount;
+	type MinBlocksBetweenClaims = MinBlocksBetweenClaims;
+	type WeightInfo = pallet_faucet::weights::SubstrateWeight<Runtime>;
+}
+
 // implement `CreateSignedTransaction` to allow `create_transaction` of offchain worker for runtime
 impl<LocalCall> frame_system::offchain::CreateSignedTransaction<LocalCall> for Runtime
 where
@@ -482,6 +505,7 @@ construct_runtime!(
 		Contracts: pallet_contracts,
 		EdgeConnect: pallet_edge_connect,
 		WorkerRegistration: pallet_worker_registration,
+		Faucet: pallet_faucet::{Pallet, Call, Storage, Event<T>},
 	}
 );
 

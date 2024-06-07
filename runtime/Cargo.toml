@@ -57,6 +57,7 @@ frame-system-benchmarking = { workspace = true, optional = true }
 # Local Dependencies
 pallet-edge-connect = { version = "0.1.0-dev", default-features = false, path = "../pallets/edge-connect" }
 pallet-worker-registration = { version = "0.1.0-dev", default-features = false, path = "../pallets/worker-registration" }
+pallet-faucet = { version = "1.0.2", default-features = false, path = "../pallets/faucet" }
 
 [build-dependencies]
 substrate-wasm-builder = { workspace = true, optional = true }
@@ -84,6 +85,7 @@ std = [
 	"pallet-sudo/std",
 	"pallet-edge-connect/std",
 	"pallet-worker-registration/std",
+	"pallet-faucet/std",
 	"pallet-timestamp/std",
 	"pallet-transaction-payment-rpc-runtime-api/std",
 	"pallet-transaction-payment/std",
@@ -109,6 +111,7 @@ runtime-benchmarks = [
 	"pallet-balances/runtime-benchmarks",
 	"pallet-edge-connect/runtime-benchmarks",
 	"pallet-worker-registration/runtime-benchmarks",
+	"pallet-faucet/runtime-benchmarks",
 	"pallet-grandpa/runtime-benchmarks",
 	"pallet-edge-connect/runtime-benchmarks",
 	"pallet-timestamp/runtime-benchmarks",
