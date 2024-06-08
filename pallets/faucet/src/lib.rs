@@ -87,12 +87,18 @@ pub mod pallet {
 	pub(super) type LastClaimOf<T: Config> =
 		StorageMap<_, Twox64Concat, T::AccountId, Option<(u32, BlockNumberFor<T>)>, ValueQuery>;
 
+	/// Checks the on and off state of the faucet
+	#[pallet::storage]
+	#[pallet::getter(fn faucet_status)]
+	pub type FaucetStatus<T> = StorageValue<_, bool, ValueQuery>;
+
 	/// Events type.
 	#[pallet::event]
 	#[pallet::generate_deposit(pub(super) fn deposit_event)]
 	pub enum Event<T: Config> {
 		// Faucet has dripped an amount of tokens to account [balance, who]
 		FaucetDripped(BalanceOf<T>, T::AccountId),
+		UpdateFaucetStatus(bool),
 	}
 
 	// Errors inform users that something went wrong.
@@ -102,6 +108,8 @@ pub mod pallet {
 		LastClaimTooRecent,
 		/// Maximum number of claims for account was exceeded
 		MaxClaimsExceeded,
+		/// Faucet is unavailable
+		FaucetOff
 	}
 
 	#[pallet::call]
@@ -120,6 +128,11 @@ pub mod pallet {
 		#[transactional]
         #[pallet::weight((T::WeightInfo::claim_tokens(), DispatchClass::Normal, Pays::No))]
 		pub fn claim_tokens(origin: OriginFor<T>) -> DispatchResult {
+			ensure!(
+				FaucetStatus::<T>::get() == true,
+				Error::<T>::FaucetOff
+			);
+
 			let who = ensure_signed(origin)?;
 
 			let current_block = <frame_system::Pallet<T>>::block_number();
@@ -168,6 +181,18 @@ pub mod pallet {
 			drop(imbalance);
 
 			Self::deposit_event(Event::FaucetDripped(amount, who));
+
+			Ok(())
+		}
+
+		#[transactional]
+        #[pallet::weight((10_000 + T::DbWeight::get().writes(1).ref_time(), DispatchClass::Normal, Pays::No))]
+		pub fn setFaucet(origin: OriginFor<T>, status: bool) -> DispatchResult {
+			let who = ensure_root(origin)?;
+		
+			FaucetStatus::<T>::set(status);
+
+			Self::deposit_event(Event::UpdateFaucetStatus(status));
 
 			Ok(())
 		}
