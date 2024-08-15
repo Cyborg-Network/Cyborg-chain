@@ -40,14 +40,14 @@
 
 #### **Deliverables:**
 
-| Number | Deliverable | Specification |
-| -----: | ----------- | ------------- |
-| **0a.** | License | GPLv3 |
-| **0b.** | Documentation | We will provide both **inline documentation** of the code and a basic **tutorial** that explains how users can (for example) deploy apps using yaml files through our interface |
-| **0c.** | Testing and Testing Guide | Core functions will be fully covered by comprehensive unit tests to ensure functionality and robustness. In the guide, we will describe how to run these tests. |
-| **0d.** | Docker | We will provide a Dockerfile(s) that can be used to test all the functionality delivered with this milestone. |
-| **0e.** | Article | We will publish a medium blog explaining the vision of NueroZK, current features and future plans |
-| 1. | Testing suite | We will provide a testing facility to examine the working of ZK verification tool with the Cyborg parachain.|
-| 2. | Substrate Module: ZK verifier | This pallet will be responsible for verifying and confirming proofs emitted by the offchain ZK worker through the cyborg oracle. |
-| 3. | Cyborg ZK worker | A feature to the Cyborg worker node to posses specific instructions about ZK proof generation for a specific executed AI algorithm|
-| 4. | Substrate module: Worker Rewards | A custom pallet that holds the logic of assigning rewards to commited worker nodes for executing user tasks |
+| Number | Completed |Deliverable | Specification | Deadline |
+| -----: | ----- | ----------- | ------------- | -------------- |
+| **0a.** | <ul><li>[x] </li></ul> | License | GPLv3 | 15/08/2024 |
+| **0b.** | <ul><li>[ ] </li></ul> |Documentation | We will provide both **inline documentation** of the code and a basic **tutorial** that explains how users can (for example) deploy apps using yaml files through our interface | |
+| **0c.** | <ul><li>[ ] </li></ul> |Testing and Testing Guide | Core functions will be fully covered by comprehensive unit tests to ensure functionality and robustness. In the guide, we will describe how to run these tests. | |
+| **0d.** |<ul><li>[ ] </li></ul> | Docker | We will provide a Dockerfile(s) that can be used to test all the functionality delivered with this milestone. | |
+| **0e.** | <ul><li>[ ] </li></ul> |Article | We will publish a medium blog explaining the vision of NueroZK, current features and future plans | |
+| 1. | <ul><li>[ ] </li></ul> |Testing suite | We will provide a testing facility to examine the working of ZK verification tool with the Cyborg parachain.|  |
+| 2. | <ul><li>[ ] </li></ul> |Substrate Module: ZK verifier | This pallet will be responsible for verifying and confirming proofs emitted by the offchain ZK worker through the cyborg oracle. |   |
+| 3. | <ul><li>[ ] </li></ul> |Cyborg ZK worker | A feature to the Cyborg worker node to posses specific instructions about ZK proof generation for a specific executed AI algorithm| |
+| 4. | <ul><li>[ ] </li></ul> |Substrate module: Worker Rewards | A custom pallet that holds the logic of assigning rewards to commited worker nodes for executing user tasks | |
