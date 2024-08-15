@@ -5,7 +5,7 @@
 #### **Deliverables:**
 
 | Number | Completed |Deliverable | Specification | Deadline |
-| -----: | ----- | ----------- | ------------- | --------- |
+| -----: | ----- | ----------- | ------------- | -------------- |
 | **0a.** | <ul><li>[ ] </li></ul> | License | GPLv3 | |
 | **0b.** | <ul><li>[ ] </li></ul>| Documentation | We will provide both **inline documentation** of the code and a basic **tutorial** that explains how users can (for example) deploy docker images using our interface. | |
 | **0c.** |  <ul><li>[ ] </li></ul>|Testing and Testing Guide | Core functions will be fully covered by comprehensive unit tests to ensure functionality and robustness. In the guide, we will describe how to run these tests. | |
