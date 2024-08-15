@@ -6,14 +6,14 @@
 
 | Number | Completed |Deliverable | Specification |
 | -----: | ----- | ----------- | ------------- |
-| **0a.** | - [x] | License | GPLv3 |
-| **0b.** | [] | Documentation | We will provide both **inline documentation** of the code and a basic **tutorial** that explains how users can (for example) deploy docker images using our interface. |
-| **0c.** |  [] |Testing and Testing Guide | Core functions will be fully covered by comprehensive unit tests to ensure functionality and robustness. In the guide, we will describe how to run these tests. |
-| **0d.** | [] | Docker | We will provide a Dockerfile(s) that can be used to deploy a local cyborg parachain and test the features of this delivery. |
-| 1. |  [] | Working Demo | We will provide video documentation to help developers understand the process of testing the Orcale implementation.|
-| 2. |  [] |Substrate Module: Oracle | This pallet will be responsible for establishing communication and regulating the use of an oracle. |
-| 3. |  [] |Front end App: Cyborg Connect | Updated UI with features to display Task verification and result information from Orcale |
-| 4. | [] | Cyborg Oracle | An ORML based oracle implementation to seamless exchange data packets between cyborg parachain and connected offchain clusters|
+| **0a.** | <ul><li>[ ] </li></ul> | License | GPLv3 |
+| **0b.** | <ul><li>[ ] </li></ul>| Documentation | We will provide both **inline documentation** of the code and a basic **tutorial** that explains how users can (for example) deploy docker images using our interface. |
+| **0c.** |  <ul><li>[ ] </li></ul>|Testing and Testing Guide | Core functions will be fully covered by comprehensive unit tests to ensure functionality and robustness. In the guide, we will describe how to run these tests. |
+| **0d.** | <ul><li>[ ] </li></ul>| Docker | We will provide a Dockerfile(s) that can be used to deploy a local cyborg parachain and test the features of this delivery. |
+| 1. |  <ul><li>[ ] </li></ul> | Working Demo | We will provide video documentation to help developers understand the process of testing the Orcale implementation.|
+| 2. |<ul><li>[ ] </li></ul> |Substrate Module: Oracle | This pallet will be responsible for establishing communication and regulating the use of an oracle. |
+| 3. |  <ul><li>[ ] </li></ul> |Front end App: Cyborg Connect | Updated UI with features to display Task verification and result information from Orcale |
+| 4. | <ul><li>[ ] </li></ul> | Cyborg Oracle | An ORML based oracle implementation to seamless exchange data packets between cyborg parachain and connected offchain clusters|
 
 
 ### Milestone 2 - Cyborg Worker Node Implementation
